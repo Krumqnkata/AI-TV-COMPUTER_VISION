@@ -10,6 +10,7 @@ class Config:
     JOKES_FILE_PATH = os.getenv("JOKES_FILE_PATH", "jokes.json")
     NAMES_MAPPING_PATH = os.getenv("NAMES_MAPPING_PATH", "data/names_mapping.json")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
 
     # Логове

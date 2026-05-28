@@ -22,9 +22,9 @@ class TTSManager:
         if Config.GEMINI_API_KEY:
             try:
                 self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
-                self.model_id = "gemini-2.5-flash" # Използваме модел от вашия списък
+                self.model_id = Config.GEMINI_MODEL_ID
                 self.ai_enabled = True
-                log_system("Gemini AI (google-genai) initialized successfully.")
+                log_system(f"Gemini AI initialized with model: {self.model_id}")
             except Exception as e:
                 log_system(f"Failed to initialize Gemini AI: {e}", "error")
 
@@ -89,9 +89,18 @@ class TTSManager:
             log_system(f"Recognized: {name}")
             log_recognition(name)
 
+            # Добавяме името в опашката. 
+            # Цялото мислене и генериране ще се случи във фоновата нишка.
+            self.speech_queue.put(name)
+
+    def _worker(self):
+        """ Фонова нишка, която обработва имената, генерира шеги и ги пуска """
+        while True:
+            name = self.speech_queue.get()
+            
             joke = None
             
-            # 1. Опит за генериране с ИИ (вече и за непознати)
+            # 1. Опит за генериране с ИИ
             if self.ai_enabled:
                 joke = self._generate_ai_joke(name)
             
@@ -99,15 +108,10 @@ class TTSManager:
             if not joke and name in self.jokes:
                 joke = random.choice(self.jokes[name])
             
-            # 3. Добавяне в опашката, ако имаме шега
+            # 3. Ако имаме шега, я превръщаме в говор и я пускаме
             if joke:
-                self.speech_queue.put(joke)
-
-    def _worker(self):
-        """ Фонова нишка, която пуска шегите една след друга """
-        while True:
-            joke = self.speech_queue.get()
-            self._generate_and_play(joke)
+                self._generate_and_play(joke)
+                
             self.speech_queue.task_done()
 
     def _generate_and_play(self, text):
