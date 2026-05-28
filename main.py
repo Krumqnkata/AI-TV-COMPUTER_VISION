@@ -27,11 +27,11 @@ def draw_ui(frame, face_data):
     img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(img_pil, "RGBA")
     
-    # Зареждане на шрифтове с пълен път за Windows за избягване на пикселизация
+    # Зареждане на шрифтове с пълен път за Windows
     font_path = "C:\\Windows\\Fonts\\arial.ttf"
     try:
         font_main = ImageFont.truetype(font_path, 32)
-        font_small = ImageFont.truetype(font_path, 22)
+        font_small = ImageFont.truetype(font_path, 36)
     except:
         font_main = ImageFont.load_default()
         font_small = ImageFont.load_default()
@@ -39,7 +39,6 @@ def draw_ui(frame, face_data):
     # Рисуваме заглавие и часовник
     time_str = datetime.now().strftime("%H:%M:%S")
     draw.text((20, 12), "SCHOOL AI - SYSTEM MONITORING", font=font_main, fill=(0, 255, 255))
-    # Преместваме часовника по-наляво (от 220 на 280 пиксела от десния край)
     draw.text((width - 280, 15), f"TIME: {time_str}", font=font_main, fill=(255, 255, 255))
 
     # Рисуваме елементи за всяко лице
@@ -59,8 +58,8 @@ def draw_ui(frame, face_data):
         draw.line([(right, bottom), (right, bottom - length)], fill=color_neon, width=t)
 
         # Подложка за името
-        draw.rectangle([left, top - 40, right, top], fill=(0, 0, 0, 160))
-        draw.text((left + 10, top - 35), f"NAME: {name}", font=font_small, fill=(255, 255, 255))
+        draw.rectangle([left, top - 50, right, top], fill=(0, 0, 0, 160))
+        draw.text((left + 10, top - 45), f"NAME: {name}", font=font_small, fill=(255, 255, 255))
 
     # Обратно към OpenCV формат
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
@@ -90,26 +89,35 @@ def main():
 
     log_system("System active. Press 'q' or 'ESC' to exit.")
 
+    # --- ПЕРФОРМАНС НАСТРОЙКИ ---
+    frame_count = 0
+    process_every_n_frames = 10 # Разпознавай само на всеки 10-ти кадър
+    face_data = [] # Постоянни данни за рамките
+    # ----------------------------
+
     while True:
         ret, frame = video_capture.read()
         if not ret: break
 
-        # Разпознаване (на малък кадър за бързина, но рисуваме върху големия HD кадър)
-        # 0.25 от 1280x720 е 320x180 - идеално за скорост
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-        face_locations, face_names = face_manager.identify_face(small_frame)
+        # ПРОВЕРКА: Трябва ли да анализираме този кадър?
+        if frame_count % process_every_n_frames == 0:
+            # Намаляваме за бързина
+            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+            # ТЕЖКАТА ЧАСТ СЕ СЛУЧВА ТУК
+            face_locations, face_names = face_manager.identify_face(small_frame)
 
-        # Подготовка на данните за мащабиране обратно към HD (x4)
-        face_data = []
-        for (top, right, bottom, left), name in zip(face_locations, face_names):
-            face_data.append(((top*4, right*4, bottom*4, left*4), name))
-            if name != "Unknown":
-                tts_manager.speak_joke(name)
+            # Подготовка на данните за мащабиране
+            face_data = []
+            for (top, right, bottom, left), name in zip(face_locations, face_names):
+                face_data.append(((top*4, right*4, bottom*4, left*4), name))
+                if name != "Unknown":
+                    tts_manager.speak_joke(name)
 
-        # Рисуване на интерфейса
+        # РИСУВАНЕТО СЕ СЛУЧВА ПРИ ВСЕКИ КАДЪР (за плавност)
         frame = draw_ui(frame, face_data)
-
         cv2.imshow(win_name, frame)
+
+        frame_count += 1
 
         # Изход
         key = cv2.waitKey(1) & 0xFF
