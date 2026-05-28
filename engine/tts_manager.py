@@ -6,6 +6,8 @@ from threading import Thread
 from queue import Queue
 from gtts import gTTS
 import pygame
+from google import genai
+from utils.config import Config
 from utils.logger import log_system, log_recognition
 
 class TTSManager:
@@ -15,6 +17,17 @@ class TTSManager:
         self.jokes = self.load_jokes(jokes_file)
         self.speech_queue = Queue()
         
+        # Инициализиране на Gemini AI (Нов SDK)
+        self.ai_enabled = False
+        if Config.GEMINI_API_KEY:
+            try:
+                self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
+                self.model_id = "gemini-2.5-flash" # Използваме модел от вашия списък
+                self.ai_enabled = True
+                log_system("Gemini AI (google-genai) initialized successfully.")
+            except Exception as e:
+                log_system(f"Failed to initialize Gemini AI: {e}", "error")
+
         # Инициализиране на аудио системата
         pygame.mixer.init()
         
@@ -34,18 +47,60 @@ class TTSManager:
             log_system(f"Error loading jokes: {e}", "error")
             return {}
 
+    def _generate_ai_joke(self, name):
+        """ Генерира шега чрез Gemini AI """
+        if not self.ai_enabled:
+            return None
+        
+        # Специален промпт, ако човекът е непознат
+        if name == "Непознат":
+            prompt = (
+                "Напиши една ЕДИНСТВЕНА, много кратка и забавна закачка на български за непознат човек, "
+                "който току-що се появи пред камерата. Можеш да се пошегуваш, че е нов тук или че изглежда мистериозно. "
+                "ВАЖНО: Върни САМО текста на закачката, без въведения и обяснения. Максимум 1 изречение."
+            )
+        else:
+            prompt = (
+                f"Напиши една ЕДИНСТВЕНА, много кратка, забавна и оригинална шега или закачка на български "
+                f"за човек на име {name}. Той току-що влезе в стаята и беше разпознат от камерата. "
+                f"ВАЖНО: Върни САМО текста на шегата, без никакви въведения, без 'Ето варианти', "
+                f"без номерация и без обяснения. Максимум 1 изречение."
+            )
+        
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt
+            )
+            if response and response.text:
+                joke = response.text.strip()
+                log_system(f"AI generated joke for {name}")
+                return joke
+        except Exception as e:
+            log_system(f"Gemini AI error: {e}", "error")
+        return None
+
     def speak_joke(self, name):
         current_time = time.time()
-        if name in self.jokes:
-            if name not in self.last_seen or (current_time - self.last_seen[name] > self.cooldown):
+        if name not in self.last_seen or (current_time - self.last_seen[name] > self.cooldown):
+            self.last_seen[name] = current_time
+            
+            # Логване на разпознаването
+            log_system(f"Recognized: {name}")
+            log_recognition(name)
+
+            joke = None
+            
+            # 1. Опит за генериране с ИИ (вече и за непознати)
+            if self.ai_enabled:
+                joke = self._generate_ai_joke(name)
+            
+            # 2. Фолбек към локални шеги (само ако ИИ се провали и имаме записани шеги)
+            if not joke and name in self.jokes:
                 joke = random.choice(self.jokes[name])
-                self.last_seen[name] = current_time
-                
-                # Логване на разпознаването (БЕЗ емоджи)
-                log_system(f"Recognized: {name}")
-                log_recognition(name)
-                
-                # Добавяне в опашката за говорене
+            
+            # 3. Добавяне в опашката, ако имаме шега
+            if joke:
                 self.speech_queue.put(joke)
 
     def _worker(self):
