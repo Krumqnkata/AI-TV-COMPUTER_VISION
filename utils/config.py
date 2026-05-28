@@ -8,6 +8,7 @@ class Config:
     CAMERA_INDEX = int(os.getenv("CAMERA_INDEX", 0))
     FACES_DATA_PATH = os.getenv("FACES_DATA_PATH", "data/faces")
     JOKES_FILE_PATH = os.getenv("JOKES_FILE_PATH", "jokes.json")
+    NAMES_MAPPING_PATH = os.getenv("NAMES_MAPPING_PATH", "data/names_mapping.json")
 
 
     # Логове

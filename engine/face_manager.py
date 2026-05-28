@@ -3,6 +3,8 @@ import cv2
 import os
 import numpy as np
 import pickle
+import json
+from utils.config import Config
 
 class FaceManager:
     def __init__(self, faces_path):
@@ -10,6 +12,19 @@ class FaceManager:
         self.cache_path = "data/face_encodings.pkl"
         self.known_face_encodings = []
         self.known_face_names = []
+        self.names_mapping = self._load_names_mapping()
+
+    def _load_names_mapping(self):
+        try:
+            if os.path.exists(Config.NAMES_MAPPING_PATH):
+                with open(Config.NAMES_MAPPING_PATH, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading names mapping: {e}")
+        return {}
+
+    def _get_mapped_name(self, name):
+        return self.names_mapping.get(name, name)
 
     def load_faces(self):
         # Преброяваме колко снимки/папки имаме реално в директорията
@@ -42,13 +57,14 @@ class FaceManager:
             item_path = os.path.join(self.faces_path, item)
             
             if os.path.isdir(item_path):
-                person_name = item
+                person_name = self._get_mapped_name(item)
                 for image_name in os.listdir(item_path):
                     self._process_image(os.path.join(item_path, image_name), person_name)
             
             elif os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg')):
                 person_name = os.path.splitext(item)[0]
                 person_name = ''.join([i for i in person_name if not i.isdigit()]).strip()
+                person_name = self._get_mapped_name(person_name)
                 self._process_image(item_path, person_name)
 
         # 3. Обновяваме кеша
@@ -96,7 +112,7 @@ class FaceManager:
         face_names = []
         for face_encoding in face_encodings:
             matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
-            name = "Unknown"
+            name = self._get_mapped_name("Unknown")
             if self.known_face_encodings:
                 face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
                 if len(face_distances) > 0:
