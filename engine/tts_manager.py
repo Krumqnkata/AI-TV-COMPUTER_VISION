@@ -61,9 +61,23 @@ class TTSManager:
             filename = os.path.join(self.temp_dir, f"joke_{hash(text)}.mp3")
             
             if not os.path.exists(filename):
-                log_system(f"Generating new audio for: {text[:30]}...")
-                tts = gTTS(text=text, lang='bg')
-                tts.save(filename)
+                # Проверка: дали имаме интернет за генериране?
+                try:
+                    import socket
+                    socket.create_connection(("8.8.8.8", 53), timeout=2)
+                    
+                    log_system(f"Generating new audio for: {text[:30]}...")
+                    tts = gTTS(text=text, lang='bg')
+                    tts.save(filename)
+                except OSError:
+                    log_system("No internet! Cannot generate new joke.", "error")
+                    # ТРИК: Ако няма интернет, пусни случайна стара шега от кеша
+                    cached_files = [f for f in os.listdir(self.temp_dir) if f.endswith(".mp3")]
+                    if cached_files:
+                        filename = os.path.join(self.temp_dir, random.choice(cached_files))
+                        log_system("Playing cached joke instead.")
+                    else:
+                        return # Няма интернет и няма кеш - просто мълчим
 
             # Пускане на аудиото
             pygame.mixer.music.load(filename)
