@@ -31,7 +31,7 @@ class TTSManager:
             with open(jokes_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            log_system(f"Грешка при зареждане на шеги: {e}", "error")
+            log_system(f"Error loading jokes: {e}", "error")
             return {}
 
     def speak_joke(self, name):
@@ -41,8 +41,8 @@ class TTSManager:
                 joke = random.choice(self.jokes[name])
                 self.last_seen[name] = current_time
                 
-                # Логване на разпознаването
-                log_system(f"👤 Разпознат: {name}")
+                # Логване на разпознаването (БЕЗ емоджи)
+                log_system(f"Recognized: {name}")
                 log_recognition(name)
                 
                 # Добавяне в опашката за говорене
@@ -61,7 +61,7 @@ class TTSManager:
             filename = os.path.join(self.temp_dir, f"joke_{hash(text)}.mp3")
             
             if not os.path.exists(filename):
-                log_system(f"🌐 Генериране на нов аудио файл за: {text[:30]}...")
+                log_system(f"Generating new audio for: {text[:30]}...")
                 tts = gTTS(text=text, lang='bg')
                 tts.save(filename)
 
@@ -74,4 +74,4 @@ class TTSManager:
                 time.sleep(0.1)
                 
         except Exception as e:
-            log_system(f"Грешка при Google TTS/Pygame: {e}", "error")
+            log_system(f"Error in gTTS/Pygame: {e}", "error")

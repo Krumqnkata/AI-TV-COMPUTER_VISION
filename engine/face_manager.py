@@ -26,13 +26,13 @@ class FaceManager:
             
             # Ако броят на папките е същият, зареждаме мигновено
             if cached_names_count == actual_folders_count and actual_folders_count > 0:
-                print("🚀 Зареждане от кеша (няма промени в лицата)...")
+                print("Loading from cache (no changes in faces)...")
                 self.known_face_encodings = data['encodings']
                 self.known_face_names = data['names']
-                print(f"✅ Заредени са {len(set(self.known_face_names))} лица.")
+                print(f"DONE: Loaded {len(set(self.known_face_names))} faces.")
                 return
             else:
-                print("🔄 Намерени са промени в снимките. Преизчислявам лицата...")
+                print("Changes detected in photos. Recalculating faces...")
 
         # 2. Ако кешът е остарял или го няма, анализираме снимките
         if not os.path.exists(self.faces_path):
@@ -58,40 +58,35 @@ class FaceManager:
                     'encodings': self.known_face_encodings,
                     'names': self.known_face_names
                 }, f)
-            print("💾 Кешът е обновен с новите лица.")
+            print("Cache updated with new faces.")
 
     def _process_image(self, image_path, name):
         try:
-            # ТРИК ЗА КИРИЛИЦА: Четем файла като масив от байтове, след което го декодираме
-            # Това заобикаля проблема на cv2.imread с Unicode пътища в Windows
             with open(image_path, "rb") as f:
                 chunk = f.read()
             chunk_array = np.frombuffer(chunk, dtype=np.uint8)
             image = cv2.imdecode(chunk_array, cv2.IMREAD_COLOR)
             
             if image is None: 
-                print(f"  [!] Неуспешно декодиране на: {image_path}")
+                print(f"  [!] Failed to decode: {image_path}")
                 return
             
-            # Намаляваме размера за по-бърза обработка
             height, width = image.shape[:2]
             if width > 1000:
                 scale = 1000 / width
                 image = cv2.resize(image, (0,0), fx=scale, fy=scale)
             
-            # Превръщаме в RGB за face_recognition
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
-            # Намираме кодировките
             encodings = face_recognition.face_encodings(rgb_image)
             if encodings:
                 self.known_face_encodings.append(encodings[0])
                 self.known_face_names.append(name)
-                print(f"  [OK] Анализирано лице: {name} (от {os.path.basename(image_path)})")
+                print(f"  [OK] Analyzed face: {name} (from {os.path.basename(image_path)})")
             else:
-                print(f"  [!] Няма лице в: {os.path.basename(image_path)}")
+                print(f"  [!] No face found in: {os.path.basename(image_path)}")
         except Exception as e:
-            print(f"  [Грешка] {image_path}: {e}")
+            print(f"  [ERROR] {image_path}: {e}")
 
     def identify_face(self, frame):
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
