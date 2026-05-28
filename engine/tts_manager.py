@@ -2,13 +2,14 @@ import os
 import json
 import random
 import time
+import wave
 from threading import Thread
 from queue import Queue
-from gtts import gTTS
 import pygame
 from google import genai
 from utils.config import Config
 from utils.logger import log_system, log_recognition
+from piper.voice import PiperVoice
 
 class TTSManager:
     def __init__(self, jokes_file, cooldown):
@@ -27,6 +28,21 @@ class TTSManager:
                 log_system(f"Gemini AI initialized with model: {self.model_id}")
             except Exception as e:
                 log_system(f"Failed to initialize Gemini AI: {e}", "error")
+
+        # Инициализиране на Piper TTS
+        self.piper_enabled = False
+        piper_model_path = os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx")
+        piper_config_path = os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx.json")
+        
+        if os.path.exists(piper_model_path) and os.path.exists(piper_config_path):
+            try:
+                self.piper_model = PiperVoice.load(piper_model_path, config_path=piper_config_path)
+                self.piper_enabled = True
+                log_system("Piper TTS initialized successfully with Bulgarian voice.")
+            except Exception as e:
+                log_system(f"Failed to initialize Piper TTS: {e}", "error")
+        else:
+            log_system("Piper TTS model or config files not found. Falling back to gTTS (if needed).", "error")
 
         # Инициализиране на аудио системата
         pygame.mixer.init()
@@ -116,27 +132,46 @@ class TTSManager:
 
     def _generate_and_play(self, text):
         try:
-            # Кешираме файла, за да не го теглим всеки път
-            filename = os.path.join(self.temp_dir, f"joke_{hash(text)}.mp3")
+            # Piper генерира WAV файл.
+            filename = os.path.join(self.temp_dir, f"joke_{hash(text)}.wav") 
             
             if not os.path.exists(filename):
-                # Проверка: дали имаме интернет за генериране?
-                try:
-                    import socket
-                    socket.create_connection(("8.8.8.8", 53), timeout=2)
-                    
-                    log_system(f"Generating new audio for: {text[:30]}...")
-                    tts = gTTS(text=text, lang='bg')
-                    tts.save(filename)
-                except OSError:
-                    log_system("No internet! Cannot generate new joke.", "error")
-                    # ТРИК: Ако няма интернет, пусни случайна стара шега от кеша
-                    cached_files = [f for f in os.listdir(self.temp_dir) if f.endswith(".mp3")]
-                    if cached_files:
-                        filename = os.path.join(self.temp_dir, random.choice(cached_files))
-                        log_system("Playing cached joke instead.")
-                    else:
-                        return # Няма интернет и няма кеш - просто мълчим
+                if self.piper_enabled:
+                    log_system(f"Generating new audio with Piper TTS for: {text[:30]}...")
+                    try:
+                        # Piper генерира директно във файл чрез wave модула
+                        with wave.open(filename, 'wb') as w:
+                            self.piper_model.synthesize_wav(text, w)
+                    except Exception as e:
+                        log_system(f"Piper TTS generation failed: {e}. Falling back to gTTS.", "error")
+                        
+                        # Фолбек към gTTS, ако Piper се провали
+                        try:
+                            import socket
+                            socket.create_connection(("8.8.8.8", 53), timeout=2)
+                            
+                            log_system(f"Generating new audio with gTTS for: {text[:30]}...")
+                            from gtts import gTTS
+                            tts = gTTS(text=text, lang='bg')
+                            tts.save(filename.replace(".wav", ".mp3"))
+                            filename = filename.replace(".wav", ".mp3")
+                        except OSError:
+                            log_system("No internet! Cannot generate new joke with gTTS.", "error")
+                            return
+                else: 
+                    # Ако Piper не е enabled, директно пробваме gTTS
+                    try:
+                        import socket
+                        socket.create_connection(("8.8.8.8", 53), timeout=2)
+                        
+                        log_system(f"Generating new audio with gTTS for: {text[:30]}...")
+                        from gtts import gTTS
+                        tts = gTTS(text=text, lang='bg')
+                        tts.save(filename.replace(".wav", ".mp3"))
+                        filename = filename.replace(".wav", ".mp3")
+                    except OSError:
+                        log_system("No internet! Cannot generate new joke with gTTS.", "error")
+                        return
 
             # Пускане на аудиото
             pygame.mixer.music.load(filename)
@@ -147,4 +182,4 @@ class TTSManager:
                 time.sleep(0.1)
                 
         except Exception as e:
-            log_system(f"Error in gTTS/Pygame: {e}", "error")
+            log_system(f"Error in Piper/gTTS/Pygame: {e}", "error")
