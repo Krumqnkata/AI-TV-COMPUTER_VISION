@@ -23,8 +23,35 @@ class FaceManager:
             print(f"Error loading names mapping: {e}")
         return {}
 
-    def _get_mapped_name(self, name):
-        return self.names_mapping.get(name, name)
+    def _get_mapped_name(self, raw_name):
+        # Премахваме цифри и излишни разстояния от името на файла/папката
+        clean_name = ''.join([i for i in raw_name if not i.isdigit()]).strip()
+        
+        # Ако е системна дума, не я форматираме
+        if clean_name.lower() == "unknown":
+            return self.names_mapping.get("Unknown", "Непознат")
+            
+        if clean_name in self.names_mapping:
+            return self.names_mapping[clean_name]
+            
+        # Автоматично генерираме красиво име: ivan_petrov -> Ivan Petrov
+        beautiful_name = clean_name.replace('_', ' ').replace('-', ' ').title()
+        
+        # Запазваме автоматично новото име в мапинга за по-лесно превеждане на кирилица по-късно
+        self.names_mapping[clean_name] = beautiful_name
+        self._save_names_mapping()
+        
+        return beautiful_name
+
+    def _save_names_mapping(self):
+        try:
+            # Уверяваме се, че директорията съществува
+            os.makedirs(os.path.dirname(Config.NAMES_MAPPING_PATH), exist_ok=True)
+            with open(Config.NAMES_MAPPING_PATH, 'w', encoding='utf-8') as f:
+                json.dump(self.names_mapping, f, ensure_ascii=False, indent=4)
+            print(f"Names mapping updated automatically at: {Config.NAMES_MAPPING_PATH}")
+        except Exception as e:
+            print(f"Error saving names mapping: {e}")
 
     def load_faces(self):
         # Преброяваме колко снимки/папки имаме реално в директорията
@@ -37,10 +64,18 @@ class FaceManager:
                 
             # Проверяваме дали броят на уникалните имена в кеша съвпада с броя на обектите в папката
             cached_names_count = len(set(data['names']))
-            actual_folders_count = len([d for d in current_items if os.path.isdir(os.path.join(self.faces_path, d))])
             
-            # Ако броят на папките е същият, зареждаме мигновено
-            if cached_names_count == actual_folders_count and actual_folders_count > 0:
+            # Преброяваме папките плюс директните файлове с изображения
+            actual_items_count = 0
+            for item in current_items:
+                item_path = os.path.join(self.faces_path, item)
+                if os.path.isdir(item_path):
+                    actual_items_count += 1
+                elif os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    actual_items_count += 1
+            
+            # Ако броят съвпада, зареждаме мигновено
+            if cached_names_count == actual_items_count and actual_items_count > 0:
                 print("Loading from cache (no changes in faces)...")
                 self.known_face_encodings = data['encodings']
                 self.known_face_names = data['names']

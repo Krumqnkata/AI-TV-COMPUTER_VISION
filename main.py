@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import threading
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from utils.config import Config
@@ -14,27 +15,79 @@ COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
 COLOR_NEON_GREEN = (0, 255, 0)
 
+# Глобален кеш за шрифтове за избягване на скъпото четене от диск всеки кадър
+FONT_PATH = "ARIAL.TTF"
+try:
+    FONT_MAIN = ImageFont.truetype(FONT_PATH, 32)
+    FONT_SMALL = ImageFont.truetype(FONT_PATH, 36)
+except Exception:
+    FONT_MAIN = ImageFont.load_default()
+    FONT_SMALL = ImageFont.load_default()
+
+class FaceRecognitionWorker:
+    """ Работник във фонов режим за разпознаване на лица без блокиране на GUI нишката """
+    def __init__(self, face_manager, tts_manager):
+        self.face_manager = face_manager
+        self.tts_manager = tts_manager
+        self.frame_to_process = None
+        self.face_data = []
+        self.lock = threading.Lock()
+        self.running = True
+        self.thread = threading.Thread(target=self._worker_loop, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def _worker_loop(self):
+        while self.running:
+            frame = None
+            with self.lock:
+                if self.frame_to_process is not None:
+                    frame = self.frame_to_process
+                    self.frame_to_process = None
+
+            if frame is not None:
+                # Ресайзваме във фоновата нишка за максимална производителност на основната
+                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                face_locations, face_names = self.face_manager.identify_face(small_frame)
+
+                temp_face_data = []
+                for (top, right, bottom, left), name in zip(face_locations, face_names):
+                    temp_face_data.append(((top * 4, right * 4, bottom * 4, left * 4), name))
+                    if name != "Unknown":
+                        self.tts_manager.speak_joke(name)
+
+                with self.lock:
+                    self.face_data = temp_face_data
+
+            time.sleep(0.01)
+
+    def submit_frame(self, frame):
+        with self.lock:
+            # Презаписваме само най-новия кадър, избягвайки опашка и закъснение
+            self.frame_to_process = frame
+
+    def get_face_data(self):
+        with self.lock:
+            return self.face_data
+
+    def clear_face_data(self):
+        with self.lock:
+            self.face_data = []
+
 def draw_ui(frame, face_data, is_processing):
     """ Основна функция за рисуване на модерния интерфейс """
     height, width = frame.shape[:2]
     
-    # 1. Глобален HUD (Горен панел)
-    overlay = frame.copy()
+    # 1. Глобален HUD (Горен панел) - Оптимизиран: блендваме само ROI (горните 60 пиксела)
+    roi = frame[0:60, 0:width]
+    overlay = roi.copy()
     cv2.rectangle(overlay, (0, 0), (width, 60), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+    cv2.addWeighted(overlay, 0.6, roi, 0.4, 0, roi)
 
     # Конвертираме към PIL за рисуване на текстове на кирилица с високо качество (anti-aliasing)
     img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(img_pil, "RGBA")
-    
-    # Зареждане на шрифтове с пълен път за Windows
-    font_path = "ARIAL.TTF" # Можете да използвате друг шрифт, който поддържа кирилица
-    try:
-        font_main = ImageFont.truetype(font_path, 32)
-        font_small = ImageFont.truetype(font_path, 36)
-    except:
-        font_main = ImageFont.load_default()
-        font_small = ImageFont.load_default()
 
     # Рисуваме заглавие, статус и часовник
     time_str = datetime.now().strftime("%H:%M:%S")
@@ -42,12 +95,12 @@ def draw_ui(frame, face_data, is_processing):
     status_color = (0, 255, 0) if is_processing else (0, 0, 255)
     
     # Изчисляваме центъра
-    status_width = draw.textlength(status_text, font=font_main)
+    status_width = draw.textlength(status_text, font=FONT_MAIN)
     status_x = (width - status_width) // 2
     
-    draw.text((20, 12), "SCHOOL AI", font=font_main, fill=(0, 255, 255))
-    draw.text((status_x, 12), status_text, font=font_main, fill=status_color)
-    draw.text((width - 280, 15), f"TIME: {time_str}", font=font_main, fill=(255, 255, 255))
+    draw.text((20, 12), "SCHOOL AI", font=FONT_MAIN, fill=(0, 255, 255))
+    draw.text((status_x, 12), status_text, font=FONT_MAIN, fill=status_color)
+    draw.text((width - 280, 15), f"TIME: {time_str}", font=FONT_MAIN, fill=(255, 255, 255))
 
     # Рисуваме елементи за всяко лице
     for (top, right, bottom, left), name in face_data:
@@ -67,7 +120,7 @@ def draw_ui(frame, face_data, is_processing):
 
         # Подложка за името
         draw.rectangle([left, top - 50, right, top], fill=(0, 0, 0, 160))
-        draw.text((left + 10, top - 45), f"NAME: {name}", font=font_small, fill=(255, 255, 255))
+        draw.text((left + 10, top - 45), f"NAME: {name}", font=FONT_SMALL, fill=(255, 255, 255))
 
     # Обратно към OpenCV формат
     return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
@@ -97,34 +150,27 @@ def main():
 
     log_system("System active. Press 'q' or 'ESC' to exit.")
 
-    # --- ПЕРФОРМАНС НАСТРОЙКИ ---
+    # Стартиране на фоновия работник за лицево разпознаване
+    recognition_worker = FaceRecognitionWorker(face_manager, tts_manager)
+    recognition_worker.start()
+
     frame_count = 0
-    process_every_n_frames = 10 # Разпознавай само на всеки 10-ти кадър
-    face_data = [] # Постоянни данни за рамките
-    is_processing = True # Toggle state
-    # ----------------------------
+    process_every_n_frames = 10  # Изпращай нов кадър за анализ на всеки 10 кадъра
+    is_processing = True
 
     while True:
         ret, frame = video_capture.read()
         if not ret: break
 
-        # ПРОВЕРКА: Трябва ли да анализираме този кадър?
-        if is_processing and frame_count % process_every_n_frames == 0:
-            # Намаляваме за бързина
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-            # ТЕЖКАТА ЧАСТ СЕ СЛУЧВА ТУК
-            face_locations, face_names = face_manager.identify_face(small_frame)
-
-            # Подготовка на данните за мащабиране
-            face_data = []
-            for (top, right, bottom, left), name in zip(face_locations, face_names):
-                face_data.append(((top*4, right*4, bottom*4, left*4), name))
-                if name != "Unknown":
-                    tts_manager.speak_joke(name)
-        elif not is_processing:
+        if is_processing:
+            if frame_count % process_every_n_frames == 0:
+                recognition_worker.submit_frame(frame)
+            face_data = recognition_worker.get_face_data()
+        else:
+            recognition_worker.clear_face_data()
             face_data = []
 
-        # РИСУВАНЕТО СЕ СЛУЧВА ПРИ ВСЕКИ КАДЪР (за плавност)
+        # Рисуването е оптимизирано и плавно при всеки кадър
         frame = draw_ui(frame, face_data, is_processing)
         cv2.imshow(win_name, frame)
 
@@ -140,9 +186,16 @@ def main():
             log_system("System stopped by user.")
             break
 
+    recognition_worker.running = False
     video_capture.release()
     cv2.destroyAllWindows()
     log_system("Goodbye!")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        log_system(f"Critical error: {e}", "error")
 
 if __name__ == "__main__":
     try:
