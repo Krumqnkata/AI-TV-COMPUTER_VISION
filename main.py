@@ -14,7 +14,7 @@ COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
 COLOR_NEON_GREEN = (0, 255, 0)
 
-def draw_ui(frame, face_data):
+def draw_ui(frame, face_data, is_processing):
     """ Основна функция за рисуване на модерния интерфейс """
     height, width = frame.shape[:2]
     
@@ -36,9 +36,17 @@ def draw_ui(frame, face_data):
         font_main = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
-    # Рисуваме заглавие и часовник
+    # Рисуваме заглавие, статус и часовник
     time_str = datetime.now().strftime("%H:%M:%S")
-    draw.text((20, 12), "SCHOOL AI - SYSTEM MONITORING", font=font_main, fill=(0, 255, 255))
+    status_text = "SYSTEM: ACTIVE" if is_processing else "SYSTEM: PAUSED"
+    status_color = (0, 255, 0) if is_processing else (0, 0, 255)
+    
+    # Изчисляваме центъра
+    status_width = draw.textlength(status_text, font=font_main)
+    status_x = (width - status_width) // 2
+    
+    draw.text((20, 12), "SCHOOL AI", font=font_main, fill=(0, 255, 255))
+    draw.text((status_x, 12), status_text, font=font_main, fill=status_color)
     draw.text((width - 280, 15), f"TIME: {time_str}", font=font_main, fill=(255, 255, 255))
 
     # Рисуваме елементи за всяко лице
@@ -93,6 +101,7 @@ def main():
     frame_count = 0
     process_every_n_frames = 10 # Разпознавай само на всеки 10-ти кадър
     face_data = [] # Постоянни данни за рамките
+    is_processing = True # Toggle state
     # ----------------------------
 
     while True:
@@ -100,7 +109,7 @@ def main():
         if not ret: break
 
         # ПРОВЕРКА: Трябва ли да анализираме този кадър?
-        if frame_count % process_every_n_frames == 0:
+        if is_processing and frame_count % process_every_n_frames == 0:
             # Намаляваме за бързина
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             # ТЕЖКАТА ЧАСТ СЕ СЛУЧВА ТУК
@@ -112,15 +121,21 @@ def main():
                 face_data.append(((top*4, right*4, bottom*4, left*4), name))
                 if name != "Unknown":
                     tts_manager.speak_joke(name)
+        elif not is_processing:
+            face_data = []
 
         # РИСУВАНЕТО СЕ СЛУЧВА ПРИ ВСЕКИ КАДЪР (за плавност)
-        frame = draw_ui(frame, face_data)
+        frame = draw_ui(frame, face_data, is_processing)
         cv2.imshow(win_name, frame)
 
         frame_count += 1
 
         # Изход
         key = cv2.waitKey(1) & 0xFF
+        if key == ord(' '): # Toggle with Space
+            is_processing = not is_processing
+            log_system(f"System {'ACTIVE' if is_processing else 'PAUSED'}")
+        
         if key == ord('q') or key == 27 or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
             log_system("System stopped by user.")
             break
