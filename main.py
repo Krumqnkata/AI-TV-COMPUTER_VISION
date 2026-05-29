@@ -28,7 +28,7 @@ def draw_ui(frame, face_data, is_processing):
     draw = ImageDraw.Draw(img_pil, "RGBA")
     
     # Зареждане на шрифтове с пълен път за Windows
-    font_path = "C:\\Windows\\Fonts\\arial.ttf"
+    font_path = "ARIAL.TTF" # Можете да използвате друг шрифт, който поддържа кирилица
     try:
         font_main = ImageFont.truetype(font_path, 32)
         font_small = ImageFont.truetype(font_path, 36)
