@@ -60,7 +60,15 @@ class FaceRecognitionWorker:
                 with self.lock:
                     self.face_data = temp_face_data
 
-            time.sleep(0.01)
+                # ДИНАМИЧНО ПРИСПИВАНЕ (CPU COOLDOWN):
+                # Наличието на лица стартира тежки математически изчисления за генериране на 128D вектори.
+                # Заспиването тук освобождава ресурси за основната графична нишка, премахвайки микро-насичанията.
+                if face_locations:
+                    time.sleep(0.4)  # Даваме глътка въздух на CPU-то, ако има лица
+                else:
+                    time.sleep(0.1)  # Малко забавяне, за да спестим цикли, когато е празно
+            else:
+                time.sleep(0.02)
 
     def submit_frame(self, frame):
         with self.lock:
@@ -85,45 +93,83 @@ def draw_ui(frame, face_data, is_processing):
     cv2.rectangle(overlay, (0, 0), (width, 60), (30, 30, 30), -1)
     cv2.addWeighted(overlay, 0.6, roi, 0.4, 0, roi)
 
-    # Конвертираме към PIL за рисуване на текстове на кирилица с високо качество (anti-aliasing)
-    img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(img_pil, "RGBA")
-
-    # Рисуваме заглавие, статус и часовник
-    time_str = datetime.now().strftime("%H:%M:%S")
     status_text = "SYSTEM: ACTIVE" if is_processing else "SYSTEM: PAUSED"
-    status_color = (0, 255, 0) if is_processing else (0, 0, 255)
+    time_str = datetime.now().strftime("%H:%M:%S")
+
+    # Рисуваме HUD текстовете чрез OpenCV (бързо и без PIL)
+    cv2_status_color = (0, 255, 0) if is_processing else (0, 0, 255)
+    (status_w, status_h), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+    status_x = (width - status_w) // 2
     
-    # Изчисляваме центъра
-    status_width = draw.textlength(status_text, font=FONT_MAIN)
-    status_x = (width - status_width) // 2
-    
-    draw.text((20, 12), "SCHOOL AI", font=FONT_MAIN, fill=(0, 255, 255))
-    draw.text((status_x, 12), status_text, font=FONT_MAIN, fill=status_color)
-    draw.text((width - 280, 15), f"TIME: {time_str}", font=FONT_MAIN, fill=(255, 255, 255))
+    cv2.putText(frame, "SCHOOL AI", (20, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2, cv2.LINE_AA)
+    cv2.putText(frame, status_text, (status_x, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, cv2_status_color, 2, cv2.LINE_AA)
+    cv2.putText(frame, f"TIME: {time_str}", (width - 260, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
 
     # Рисуваме елементи за всяко лице
     for (top, right, bottom, left), name in face_data:
         length = 35
         t = 3
-        color_neon = (0, 255, 255, 255) # Cyan
+        color_neon = (255, 255, 0) # Cyan в BGR формат за OpenCV
         
-        # Cyber Brackets
-        draw.line([(left, top), (left + length, top)], fill=color_neon, width=t)
-        draw.line([(left, top), (left, top + length)], fill=color_neon, width=t)
-        draw.line([(right, top), (right - length, top)], fill=color_neon, width=t)
-        draw.line([(right, top), (right, top + length)], fill=color_neon, width=t)
-        draw.line([(left, bottom), (left + length, bottom)], fill=color_neon, width=t)
-        draw.line([(left, bottom), (left, bottom - length)], fill=color_neon, width=t)
-        draw.line([(right, bottom), (right - length, bottom)], fill=color_neon, width=t)
-        draw.line([(right, bottom), (right, bottom - length)], fill=color_neon, width=t)
+        # Cyber Brackets (OpenCV - нативно и изключително бързо)
+        # Горно-ляво
+        cv2.line(frame, (left, top), (left + length, top), color_neon, t)
+        cv2.line(frame, (left, top), (left, top + length), color_neon, t)
+        # Горно-дясно
+        cv2.line(frame, (right, top), (right - length, top), color_neon, t)
+        cv2.line(frame, (right, top), (right, top + length), color_neon, t)
+        # Долно-ляво
+        cv2.line(frame, (left, bottom), (left + length, bottom), color_neon, t)
+        cv2.line(frame, (left, bottom), (left, bottom - length), color_neon, t)
+        # Долно-дясно
+        cv2.line(frame, (right, bottom), (right - length, bottom), color_neon, t)
+        cv2.line(frame, (right, bottom), (right, bottom - length), color_neon, t)
 
-        # Подложка за името
-        draw.rectangle([left, top - 50, right, top], fill=(0, 0, 0, 160))
-        draw.text((left + 10, top - 45), f"NAME: {name}", font=FONT_SMALL, fill=(255, 255, 255))
+        # Подложка за името (Cyrillic Text Support via PIL on Small Crop Only)
+        label_text = f"NAME: {name}"
+        
+        # Изчисляваме динамично ширината на текста според шрифта
+        try:
+            text_width = int(FONT_SMALL.getlength(label_text))
+        except Exception:
+            text_width = len(label_text) * 18  # Приблизителен фолбек за един символ
+            
+        label_h = 50
+        # Ширината е по-голямата стойност между ширината на лицето и дължината на текста + отстъп
+        label_w = max(right - left, text_width + 25)
+            
+        # Защита за границите на екрана (ако кутията излиза отдясно, я преместваме наляво)
+        y1 = max(0, top - label_h)
+        y2 = max(0, top)
+        
+        x2 = left + label_w
+        if x2 > width:
+            x2 = width
+            x1 = max(0, x2 - label_w)
+        else:
+            x1 = max(0, left)
+        
+        if y2 > y1 and x2 > x1:
+            # Изрязваме само малката лента за надписа
+            sub_img = frame[y1:y2, x1:x2].copy()
+            
+            # Нанасяме полупрозрачен черен цвят върху нея
+            overlay_box = np.zeros_like(sub_img)
+            cv2.rectangle(overlay_box, (0, 0), (x2 - x1, y2 - y1), (0, 0, 0), -1)
+            cv2.addWeighted(overlay_box, 0.6, sub_img, 0.4, 0, sub_img)
+            
+            # Конвертираме САМО тази микро-картинка към PIL за текстовия рендеринг
+            sub_pil = Image.fromarray(cv2.cvtColor(sub_img, cv2.COLOR_BGR2RGB))
+            draw_sub = ImageDraw.Draw(sub_pil)
+            
+            # Рисуваме кирилския текст върху микро-картинката
+            draw_sub.text((10, 5), label_text, font=FONT_SMALL, fill=(255, 255, 255))
+            
+            # Връщаме обратно в OpenCV формат и вграждаме в големия кадър
+            sub_img_final = cv2.cvtColor(np.array(sub_pil), cv2.COLOR_RGB2BGR)
+            frame[y1:y2, x1:x2] = sub_img_final
 
-    # Обратно към OpenCV формат
-    return cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+    return frame
 
 def main():
     log_system("STARTING CYBER-HUD INTERFACE (HD QUALITY)")
