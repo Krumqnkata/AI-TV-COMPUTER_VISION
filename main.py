@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from utils.config import Config
 from engine.face_manager import FaceManager
 from engine.tts_manager import TTSManager
+from engine.people_counter import DailyPeopleCounter
 from utils.logger import log_system
 
 # Цветове (BGR формат за OpenCV)
@@ -24,11 +25,19 @@ except Exception:
     FONT_MAIN = ImageFont.load_default()
     FONT_SMALL = ImageFont.load_default()
 
+try:
+    FONT_COUNTER = ImageFont.truetype(FONT_PATH, 30)
+    FONT_COUNTER_TITLE = ImageFont.truetype(FONT_PATH, 34)
+except Exception:
+    FONT_COUNTER = ImageFont.load_default()
+    FONT_COUNTER_TITLE = ImageFont.load_default()
+
 class FaceRecognitionWorker:
     """ Работник във фонов режим за разпознаване на лица без блокиране на GUI нишката """
-    def __init__(self, face_manager, tts_manager):
+    def __init__(self, face_manager, tts_manager, people_counter):
         self.face_manager = face_manager
         self.tts_manager = tts_manager
+        self.people_counter = people_counter
         self.frame_to_process = None
         self.face_data = []
         self.lock = threading.Lock()
@@ -52,10 +61,17 @@ class FaceRecognitionWorker:
                 face_locations, face_names = self.face_manager.identify_face(small_frame)
 
                 temp_face_data = []
+                unknown_in_frame = 0
                 for (top, right, bottom, left), name in zip(face_locations, face_names):
                     temp_face_data.append(((top * 4, right * 4, bottom * 4, left * 4), name))
                     if name != "Unknown":
+                        self.people_counter.register(name)
                         self.tts_manager.speak_joke(name)
+                    else:
+                        unknown_in_frame += 1
+
+                # Обновяваме брояча за непознати (брои само НОВИ появявания)
+                self.people_counter.update_unknowns(unknown_in_frame)
 
                 with self.lock:
                     self.face_data = temp_face_data
@@ -127,7 +143,7 @@ def _render_pil_text_on_frame(frame, text, position, font, color_rgb):
     frame[roi_y1:roi_y2, roi_x1:roi_x2] = cv2.cvtColor(np.array(pil_roi), cv2.COLOR_RGB2BGR)
 
 
-def draw_ui(frame, face_data, is_processing):
+def draw_ui(frame, face_data, is_processing, people_counter):
     """ Основна функция за рисуване на модерния интерфейс """
     height, width = frame.shape[:2]
     
@@ -218,6 +234,37 @@ def draw_ui(frame, face_data, is_processing):
             sub_img_final = cv2.cvtColor(np.array(sub_pil), cv2.COLOR_RGB2BGR)
             frame[y1:y2, x1:x2] = sub_img_final
 
+    # 3. Брояч "Засечени днес" (долен ляв ъгъл) - компактен панел само с бройка
+    count = people_counter.get_count()
+
+    panel_w = 380
+    panel_h = 60
+
+    panel_x1 = 15
+    panel_y1 = height - panel_h - 15
+    panel_x2 = panel_x1 + panel_w
+    panel_y2 = height - 15
+
+    # Клампваме координатите в рамките на кадъра
+    panel_y1 = max(0, panel_y1)
+    panel_x2 = min(width, panel_x2)
+
+    if panel_y2 > panel_y1 and panel_x2 > panel_x1:
+        # Полупрозрачен тъмен фон за панела
+        roi_panel = frame[panel_y1:panel_y2, panel_x1:panel_x2].copy()
+        overlay_panel = np.zeros_like(roi_panel)
+        cv2.rectangle(overlay_panel, (0, 0), (panel_w, panel_h), (20, 20, 20), -1)
+        cv2.addWeighted(overlay_panel, 0.7, roi_panel, 0.3, 0, roi_panel)
+
+        # Тънка cyan рамка отгоре
+        cv2.line(roi_panel, (0, 0), (panel_w, 0), (255, 255, 0), 2)
+
+        frame[panel_y1:panel_y2, panel_x1:panel_x2] = roi_panel
+
+        # "ЗАСЕЧЕНИ ДНЕС: X"
+        title_text = f"ЗАСЕЧЕНИ ДНЕС: {count}"
+        _render_pil_text_on_frame(frame, title_text, (panel_x1 + 12, panel_y1 + 12), FONT_COUNTER_TITLE, (0, 255, 255))
+
     return frame
 
 def main():
@@ -256,8 +303,11 @@ def main():
 
     log_system("System active. Press 'q' or 'ESC' to exit.")
 
+    # Брояч на уникални разпознати хора за деня
+    people_counter = DailyPeopleCounter()
+
     # Стартиране на фоновия работник за лицево разпознаване
-    recognition_worker = FaceRecognitionWorker(face_manager, tts_manager)
+    recognition_worker = FaceRecognitionWorker(face_manager, tts_manager, people_counter)
     recognition_worker.start()
 
     frame_count = 0
@@ -282,7 +332,7 @@ def main():
             face_data = []
 
         # Рисуването е оптимизирано и плавно при всеки кадър
-        frame = draw_ui(frame, face_data, is_processing)
+        frame = draw_ui(frame, face_data, is_processing, people_counter)
         cv2.imshow(win_name, frame)
 
         frame_count += 1
