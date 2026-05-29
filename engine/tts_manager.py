@@ -52,6 +52,11 @@ class TTSManager:
         if not os.path.exists(self.temp_dir):
             os.makedirs(self.temp_dir)
 
+        # Кеш система за спестяване на API заявки и токени
+        self.ai_cache_file = "data/ai_jokes_cache.json"
+        self.ai_jokes_cache = self._load_ai_jokes_cache()
+        self.api_calls_log = []  # Лог с времеви клейма за API повиквания
+
         # Стартираме фонова нишка за обработка на опашката от шеги
         Thread(target=self._worker, daemon=True).start()
 
@@ -146,20 +151,83 @@ class TTSManager:
             # Цялото мислене и генериране ще се случи във фоновата нишка.
             self.speech_queue.put(name)
 
+    def _load_ai_jokes_cache(self):
+        try:
+            if os.path.exists(self.ai_cache_file):
+                with open(self.ai_cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            log_system(f"Error loading AI jokes cache: {e}", "error")
+        return {}
+
+    def _save_ai_jokes_cache(self):
+        try:
+            os.makedirs(os.path.dirname(self.ai_cache_file), exist_ok=True)
+            with open(self.ai_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.ai_jokes_cache, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            log_system(f"Error saving AI jokes cache: {e}", "error")
+
+    def _is_api_rate_limited(self):
+        current_time = time.time()
+        # Почистваме лога от заявки по-стари от 1 час
+        self.api_calls_log = [t for t in self.api_calls_log if current_time - t < 3600]
+        
+        # Лимит 1: Максимум 4 заявки в рамките на 1 минута
+        calls_last_minute = sum(1 for t in self.api_calls_log if current_time - t < 60)
+        if calls_last_minute >= 4:
+            return True
+            
+        # Лимит 2: Максимум 60 заявки в рамките на 1 час (предпазен буфер)
+        if len(self.api_calls_log) >= 60:
+            return True
+            
+        return False
+
     def _worker(self):
         """ Фонова нишка, която обработва имената, генерира шеги и ги пуска """
         while True:
             name = self.speech_queue.get()
             
             joke = None
+            cached_list = self.ai_jokes_cache.get(name, [])
             
-            # 1. Опит за генериране с ИИ
-            if self.ai_enabled:
+            # Стратегия за спестяване на API заявки / токени:
+            # 1. Ако API е лимитирано или ИИ е спрян -> преизползваме генерирана ИИ шега (ако има)
+            # 2. Ако имаме вече поне 3 уникални генерирани шеги за този човек, в 60% от случаите ги преизползваме
+            # 3. Иначе правим нова заявка към Gemini API
+            use_cache = False
+            if not self.ai_enabled or self._is_api_rate_limited():
+                use_cache = True
+            elif len(cached_list) >= 3 and random.random() < 0.60:
+                use_cache = True
+
+            if use_cache and cached_list:
+                joke = random.choice(cached_list)
+                log_system(f"Reusing cached AI joke for {name} (Token saving / Rate limiter active)")
+
+            # Ако не ползваме кеш (или няма такъв) и API е достъпно
+            if not joke and self.ai_enabled and not self._is_api_rate_limited():
                 joke = self._generate_ai_joke(name)
+                if joke:
+                    # Добавяме новата шега в кеша
+                    if name not in self.ai_jokes_cache:
+                        self.ai_jokes_cache[name] = []
+                    if joke not in self.ai_jokes_cache[name]:
+                        self.ai_jokes_cache[name].append(joke)
+                        self._save_ai_jokes_cache()
+                    
+                    # Записваме времето на успешна API заявка
+                    self.api_calls_log.append(time.time())
             
-            # 2. Фолбек към локални шеги (само ако ИИ се провали и имаме записани шеги)
-            if not joke and name in self.jokes:
-                joke = random.choice(self.jokes[name])
+            # 2. Фолбек към локални статични шеги от jokes.json (ако ИИ няма резултат)
+            if not joke:
+                if name in self.jokes:
+                    joke = random.choice(self.jokes[name])
+                elif "Default" in self.jokes:
+                    joke = random.choice(self.jokes["Default"])
+                elif "Общи" in self.jokes:
+                    joke = random.choice(self.jokes["Общи"])
             
             # 3. Ако имаме шега, я превръщаме в говор и я пускаме
             if joke:
