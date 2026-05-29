@@ -31,8 +31,8 @@ class TTSManager:
 
         # Инициализиране на Piper TTS
         self.piper_enabled = False
-        piper_model_path = os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx")
-        piper_config_path = os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx.json")
+        piper_model_path = Config.PIPER_MODEL_PATH
+        piper_config_path = piper_model_path + ".json"
         
         if os.path.exists(piper_model_path) and os.path.exists(piper_config_path):
             try:
@@ -117,7 +117,7 @@ class TTSManager:
                 contents=prompt,
                 config=genai.types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.95,
+                    temperature=Config.AI_TEMPERATURE,
                 )
             )
             if response and response.text:
@@ -173,9 +173,9 @@ class TTSManager:
         # Почистваме лога от заявки по-стари от 1 час
         self.api_calls_log = [t for t in self.api_calls_log if current_time - t < 3600]
         
-        # Лимит 1: Максимум 4 заявки в рамките на 1 минута
+        # Лимит 1: Максимум заявки в рамките на 1 минута
         calls_last_minute = sum(1 for t in self.api_calls_log if current_time - t < 60)
-        if calls_last_minute >= 4:
+        if calls_last_minute >= Config.AI_RATE_LIMIT_PER_MINUTE:
             return True
             
         # Лимит 2: Максимум 60 заявки в рамките на 1 час (предпазен буфер)
@@ -199,7 +199,7 @@ class TTSManager:
             use_cache = False
             if not self.ai_enabled or self._is_api_rate_limited():
                 use_cache = True
-            elif len(cached_list) >= 3 and random.random() < 0.60:
+            elif len(cached_list) >= 3 and random.random() < Config.AI_CACHE_REUSE_PROB:
                 use_cache = True
 
             if use_cache and cached_list:

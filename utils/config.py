@@ -19,6 +19,17 @@ class Config:
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
+    # Нови настройки от плана за рефакторинг
+    TARGET_WIDTH = int(os.getenv("TARGET_WIDTH", 1920))
+    TARGET_HEIGHT = int(os.getenv("TARGET_HEIGHT", 1080))
+    PROCESS_EVERY_N_FRAMES = int(os.getenv("PROCESS_EVERY_N_FRAMES", 10))
+    FONT_PATH = os.getenv("FONT_PATH", "ARIAL.TTF")
+    
+    AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.95))
+    AI_RATE_LIMIT_PER_MINUTE = int(os.getenv("AI_RATE_LIMIT_PER_MINUTE", 4))
+    AI_CACHE_REUSE_PROB = float(os.getenv("AI_CACHE_REUSE_PROB", 0.60))
+    
+    PIPER_MODEL_PATH = os.getenv("PIPER_MODEL_PATH", os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx"))
 
     # Логове
     LOGS_DIR = "logs"

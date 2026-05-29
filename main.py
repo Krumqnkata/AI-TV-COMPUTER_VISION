@@ -17,7 +17,7 @@ COLOR_BLACK = (0, 0, 0)
 COLOR_NEON_GREEN = (0, 255, 0)
 
 # Глобален кеш за шрифтове за избягване на скъпото четене от диск всеки кадър (оразмерени за Full HD)
-FONT_PATH = "ARIAL.TTF"
+FONT_PATH = Config.FONT_PATH
 try:
     FONT_MAIN = ImageFont.truetype(FONT_PATH, 38)
     FONT_SMALL = ImageFont.truetype(FONT_PATH, 42)
@@ -287,8 +287,8 @@ def main():
     
     # За USB камери задаваме Full HD резолюция (IP камерите си носят собствена)
     if not is_ip_camera:
-        video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, Config.TARGET_WIDTH)
+        video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, Config.TARGET_HEIGHT)
 
     if not video_capture.isOpened():
         log_system("ERROR: Camera not found!", "error")
@@ -297,7 +297,7 @@ def main():
     # Проверяваме реалната резолюция, която камерата връща
     actual_w = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    target_w, target_h = 1920, 1080
+    target_w, target_h = Config.TARGET_WIDTH, Config.TARGET_HEIGHT
     needs_upscale = (actual_w < target_w or actual_h < target_h)
 
     if needs_upscale:
@@ -320,7 +320,7 @@ def main():
     recognition_worker.start()
 
     frame_count = 0
-    process_every_n_frames = 10  # Изпращай нов кадър за анализ на всеки 10 кадъра
+    process_every_n_frames = Config.PROCESS_EVERY_N_FRAMES  # Изпращай нов кадър за анализ на всеки n кадъра
     is_processing = True
 
     while True:
