@@ -275,11 +275,20 @@ def main():
     
     tts_manager = TTSManager(Config.JOKES_FILE_PATH, Config.COOLDOWN_SECONDS)
     
-    video_capture = cv2.VideoCapture(Config.CAMERA_INDEX)
+    source = Config.CAMERA_SOURCE
+    is_ip_camera = isinstance(source, str)
+
+    if is_ip_camera:
+        log_system(f"Connecting to IP camera: {source}")
+    else:
+        log_system(f"Opening USB camera index: {source}")
+
+    video_capture = cv2.VideoCapture(source)
     
-    # ЗАДАВАМЕ FULL HD РЕЗОЛЮЦИЯ ЗА КРИСТАЛЕН ОБРАЗ И ТЕКТОВЕ БЕЗ ПИКСЕЛИЗАЦИЯ
-    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+    # За USB камери задаваме Full HD резолюция (IP камерите си носят собствена)
+    if not is_ip_camera:
+        video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
     if not video_capture.isOpened():
         log_system("ERROR: Camera not found!", "error")
