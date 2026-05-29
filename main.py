@@ -196,9 +196,3 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         log_system(f"Critical error: {e}", "error")
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        log_system(f"Critical error: {e}", "error")
