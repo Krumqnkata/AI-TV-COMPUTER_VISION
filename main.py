@@ -15,11 +15,11 @@ COLOR_WHITE = (255, 255, 255)
 COLOR_BLACK = (0, 0, 0)
 COLOR_NEON_GREEN = (0, 255, 0)
 
-# Глобален кеш за шрифтове за избягване на скъпото четене от диск всеки кадър
+# Глобален кеш за шрифтове за избягване на скъпото четене от диск всеки кадър (оразмерени за Full HD)
 FONT_PATH = "ARIAL.TTF"
 try:
-    FONT_MAIN = ImageFont.truetype(FONT_PATH, 32)
-    FONT_SMALL = ImageFont.truetype(FONT_PATH, 36)
+    FONT_MAIN = ImageFont.truetype(FONT_PATH, 38)
+    FONT_SMALL = ImageFont.truetype(FONT_PATH, 42)
 except Exception:
     FONT_MAIN = ImageFont.load_default()
     FONT_SMALL = ImageFont.load_default()
@@ -83,27 +83,76 @@ class FaceRecognitionWorker:
         with self.lock:
             self.face_data = []
 
+def _render_pil_text_on_frame(frame, text, position, font, color_rgb):
+    """
+    Помощна функция: рисува антиалиасиран текст чрез PIL върху OpenCV кадър.
+    Рисува САМО върху малък ROI около текста, за да не конвертираме целия кадър.
+    color_rgb е кортеж (R, G, B).
+    """
+    x, y = position
+    height, width = frame.shape[:2]
+
+    # Изчисляваме размера на текста за ROI
+    try:
+        bbox = font.getbbox(text)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        text_y_offset = bbox[1]  # Горен отстъп на глифовете
+    except Exception:
+        text_w = len(text) * 22
+        text_h = 40
+        text_y_offset = 0
+
+    # Определяме ROI с малък padding
+    pad = 5
+    roi_x1 = max(0, x - pad)
+    roi_y1 = max(0, y - pad)
+    roi_x2 = min(width, x + text_w + pad)
+    roi_y2 = min(height, y + text_h + pad)
+
+    if roi_x2 <= roi_x1 or roi_y2 <= roi_y1:
+        return  # Текстът е извън екрана
+
+    # Изрязваме ROI, конвертираме само него към PIL
+    roi = frame[roi_y1:roi_y2, roi_x1:roi_x2]
+    pil_roi = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(pil_roi)
+
+    # Позиция на текста вътре в ROI
+    local_x = x - roi_x1
+    local_y = y - roi_y1 - text_y_offset
+    draw.text((local_x, local_y), text, font=font, fill=color_rgb)
+
+    # Връщаме PIL обратно в OpenCV формат
+    frame[roi_y1:roi_y2, roi_x1:roi_x2] = cv2.cvtColor(np.array(pil_roi), cv2.COLOR_RGB2BGR)
+
+
 def draw_ui(frame, face_data, is_processing):
     """ Основна функция за рисуване на модерния интерфейс """
     height, width = frame.shape[:2]
     
-    # 1. Глобален HUD (Горен панел) - Оптимизиран: блендваме само ROI (горните 60 пиксела)
-    roi = frame[0:60, 0:width]
+    # 1. Глобален HUD (Горен панел) - Оптимизиран: блендваме само ROI (горните 80 пиксела за Full HD)
+    roi = frame[0:80, 0:width]
     overlay = roi.copy()
-    cv2.rectangle(overlay, (0, 0), (width, 60), (30, 30, 30), -1)
+    cv2.rectangle(overlay, (0, 0), (width, 80), (30, 30, 30), -1)
     cv2.addWeighted(overlay, 0.6, roi, 0.4, 0, roi)
 
     status_text = "SYSTEM: ACTIVE" if is_processing else "SYSTEM: PAUSED"
     time_str = datetime.now().strftime("%H:%M:%S")
 
-    # Рисуваме HUD текстовете чрез OpenCV (бързо и без PIL)
-    cv2_status_color = (0, 255, 0) if is_processing else (0, 0, 255)
-    (status_w, status_h), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+    # Рисуваме HUD текстовете чрез PIL за кристален антиалиасиран текст
+    status_color_rgb = (0, 255, 0) if is_processing else (255, 0, 0)
+
+    # Изчисляваме позицията за центриран статус текст
+    try:
+        status_w = int(FONT_MAIN.getlength(status_text))
+    except Exception:
+        status_w = len(status_text) * 20
     status_x = (width - status_w) // 2
-    
-    cv2.putText(frame, "SCHOOL AI", (20, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, status_text, (status_x, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, cv2_status_color, 2, cv2.LINE_AA)
-    cv2.putText(frame, f"TIME: {time_str}", (width - 260, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+
+    _render_pil_text_on_frame(frame, "SCHOOL AI", (20, 18), FONT_MAIN, (0, 255, 255))
+    _render_pil_text_on_frame(frame, status_text, (status_x, 18), FONT_MAIN, status_color_rgb)
+    _render_pil_text_on_frame(frame, f"TIME: {time_str}", (width - 290, 18), FONT_MAIN, (255, 255, 255))
 
     # Рисуваме елементи за всяко лице
     for (top, right, bottom, left), name in face_data:
@@ -132,9 +181,9 @@ def draw_ui(frame, face_data, is_processing):
         try:
             text_width = int(FONT_SMALL.getlength(label_text))
         except Exception:
-            text_width = len(label_text) * 18  # Приблизителен фолбек за един символ
+            text_width = len(label_text) * 22  # Приблизителен фолбек за един символ
             
-        label_h = 50
+        label_h = 55
         # Ширината е по-голямата стойност между ширината на лицето и дължината на текста + отстъп
         label_w = max(right - left, text_width + 25)
             
@@ -162,7 +211,7 @@ def draw_ui(frame, face_data, is_processing):
             sub_pil = Image.fromarray(cv2.cvtColor(sub_img, cv2.COLOR_BGR2RGB))
             draw_sub = ImageDraw.Draw(sub_pil)
             
-            # Рисуваме кирилския текст върху микро-картинката
+            # Рисуваме кирилския текст върху микро-картинката (вертикално центриран)
             draw_sub.text((10, 5), label_text, font=FONT_SMALL, fill=(255, 255, 255))
             
             # Връщаме обратно в OpenCV формат и вграждаме в големия кадър
@@ -181,13 +230,24 @@ def main():
     
     video_capture = cv2.VideoCapture(Config.CAMERA_INDEX)
     
-    # ЗАДАВАМЕ HD РЕЗОЛЮЦИЯ ЗА ЧИСТ ОБРАЗ И ТЕКСТ
-    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    # ЗАДАВАМЕ FULL HD РЕЗОЛЮЦИЯ ЗА КРИСТАЛЕН ОБРАЗ И ТЕКТОВЕ БЕЗ ПИКСЕЛИЗАЦИЯ
+    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
     if not video_capture.isOpened():
         log_system("ERROR: Camera not found!", "error")
         return
+
+    # Проверяваме реалната резолюция, която камерата връща
+    actual_w = int(video_capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_h = int(video_capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    target_w, target_h = 1920, 1080
+    needs_upscale = (actual_w < target_w or actual_h < target_h)
+
+    if needs_upscale:
+        log_system(f"Camera delivers {actual_w}x{actual_h}. Will upscale to {target_w}x{target_h} with INTER_CUBIC for crisp text.")
+    else:
+        log_system(f"Camera delivers native {actual_w}x{actual_h}. No upscale needed.")
 
     # Настройка за FULLSCREEN
     win_name = 'SCHOOL AI - CYBER HUD'
@@ -207,6 +267,11 @@ def main():
     while True:
         ret, frame = video_capture.read()
         if not ret: break
+
+        # ЪПСКЕЙЛ: Ако камерата дава по-ниска резолюция, качествено ъпскейлваме ПРЕДИ рисуване на текста.
+        # Това гарантира, че текстът се рендерира в Full HD пространство и никога не е пикселизиран.
+        if needs_upscale:
+            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
 
         if is_processing:
             if frame_count % process_every_n_frames == 0:
