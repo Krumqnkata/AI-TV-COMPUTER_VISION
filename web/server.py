@@ -11,6 +11,7 @@ import time
 from typing import List
 
 app = FastAPI(title="School AI Control Panel")
+app.mount("/audio", StaticFiles(directory="data/audio_cache"), name="audio")
 templates = Jinja2Templates(directory="web/templates")
 
 # Глобална референция към StateManager и FaceManager

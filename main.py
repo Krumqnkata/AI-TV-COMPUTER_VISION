@@ -300,7 +300,7 @@ def main():
     face_manager = FaceManager(Config.FACES_DATA_PATH)
     face_manager.load_faces()
     
-    tts_manager = TTSManager(Config.JOKES_FILE_PATH, Config.COOLDOWN_SECONDS)
+    tts_manager = TTSManager(Config.JOKES_FILE_PATH, Config.COOLDOWN_SECONDS, state_manager)
     
     # Стартиране на уеб сървъра
     start_web_server(state_manager, face_manager)

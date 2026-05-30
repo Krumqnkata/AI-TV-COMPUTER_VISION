@@ -63,6 +63,10 @@ class StateManager:
             "total": self._people_counter.get_count() if self._people_counter else 0
         })
 
+    def on_speech_ready(self, audio_filename: str):
+        """ Вика се когато аудио файлът е генериран и готов за пускане """
+        self._notify("speech", {"url": f"/audio/{audio_filename}"})
+
     def is_processing(self):
         with self._lock:
             return self._is_processing

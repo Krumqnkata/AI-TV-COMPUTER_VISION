@@ -36,8 +36,14 @@
                 <h1 class="text-4xl font-bold tracking-tighter text-cyan-400 glow-text">SCHOOL AI <span class="text-white">OS</span></h1>
                 <p class="text-sm text-cyan-600 uppercase tracking-widest">Web Control Interface v3.0 [WEBSOCKETS]</p>
             </div>
-            <div id="system-status" class="px-4 py-1 rounded border border-green-500 text-green-500 text-sm font-bold animate-pulse">
-                SYSTEM ACTIVE
+            <div class="flex items-center space-x-4">
+                <button id="audio-toggle" onclick="toggleAudio()" class="p-2 rounded border border-cyan-500/30 text-cyan-500 hover:bg-cyan-500/10 transition-colors">
+                    <svg id="audio-icon-on" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                    <svg id="audio-icon-off" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"></path></svg>
+                </button>
+                <div id="system-status" class="px-4 py-1 rounded border border-green-500 text-green-500 text-sm font-bold animate-pulse">
+                    SYSTEM ACTIVE
+                </div>
             </div>
         </header>
 
@@ -114,8 +120,37 @@
 
     <script>
         let socket;
+        let audioEnabled = false;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            const iconOn = document.getElementById('audio-icon-on');
+            const iconOff = document.getElementById('audio-icon-off');
+            const btn = document.getElementById('audio-toggle');
+
+            if (audioEnabled) {
+                iconOn.classList.remove('hidden');
+                iconOff.classList.add('hidden');
+                btn.classList.add('bg-cyan-500/20');
+                logActivity('SYSTEM', 'Audio enabled (Browser policies bypassed)', 'text-cyan-400');
+            } else {
+                iconOn.classList.add('hidden');
+                iconOff.classList.remove('hidden');
+                btn.classList.remove('bg-cyan-500/20');
+                logActivity('SYSTEM', 'Audio muted', 'text-slate-500');
+            }
+        }
+
+        function playAudio(url) {
+            if (!audioEnabled) return;
+            const audio = new Audio(url);
+            audio.play().catch(e => {
+                console.error('Audio playback failed:', e);
+                logActivity('ERROR', 'Audio blocked by browser. Click the speaker icon!', 'text-red-500');
+            });
+        }
 
         function connectWebSocket() {
             socket = new WebSocket(wsUrl);
@@ -153,6 +188,10 @@
                 case 'recognition':
                     document.getElementById('total-count').innerText = data.total;
                     logActivity('RECOGNITION', `Detected: ${data.name}`, 'text-green-400');
+                    break;
+                case 'speech':
+                    logActivity('AUDIO', 'Playing voice message...', 'text-pink-400');
+                    playAudio(data.url);
                     break;
             }
         }

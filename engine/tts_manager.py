@@ -12,11 +12,12 @@ from utils.logger import log_system, log_recognition
 from piper.voice import PiperVoice
 
 class TTSManager:
-    def __init__(self, jokes_file, cooldown):
+    def __init__(self, jokes_file, cooldown, state_manager=None):
         self.cooldown = cooldown
         self.last_seen = {} # {name: timestamp}
         self.jokes = self.load_jokes(jokes_file)
         self.speech_queue = Queue()
+        self.state_manager = state_manager
         
         # Инициализиране на Gemini AI (Нов SDK)
         self.ai_enabled = False
@@ -282,6 +283,10 @@ class TTSManager:
             pygame.mixer.music.load(filename)
             pygame.mixer.music.play()
             
+            # Известяване на уеб панела
+            if self.state_manager:
+                self.state_manager.on_speech_ready(os.path.basename(filename))
+
             # Изчакваме края на шегата, без да блокираме камерата
             while pygame.mixer.music.get_busy():
                 time.sleep(0.1)
