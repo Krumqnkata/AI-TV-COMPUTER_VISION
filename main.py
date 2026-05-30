@@ -60,13 +60,17 @@ class FaceRecognitionWorker:
 
             if frame is not None:
                 # Ресайзваме във фоновата нишка за максимална производителност на основната
-                small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+                # 0.4 е баланс между скорост и точност за MediaPipe
+                resize_factor = 0.4
+                small_frame = cv2.resize(frame, (0, 0), fx=resize_factor, fy=resize_factor)
                 face_locations, face_names = self.face_manager.identify_face(small_frame)
 
                 temp_face_data = []
                 unknown_in_frame = 0
                 for (top, right, bottom, left), name in zip(face_locations, face_names):
-                    temp_face_data.append(((top * 4, right * 4, bottom * 4, left * 4), name))
+                    # Връщаме координатите към оригиналния мащаб
+                    scale = 1.0 / resize_factor
+                    temp_face_data.append(((int(top * scale), int(right * scale), int(bottom * scale), int(left * scale)), name))
                     if name != "Unknown":
                         self.people_counter.register(name)
                         self.tts_manager.speak_joke(name)

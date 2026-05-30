@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pickle
 import json
+import mediapipe as mp
 from utils.config import Config
 
 class FaceManager:
@@ -13,6 +14,12 @@ class FaceManager:
         self.known_face_encodings = []
         self.known_face_names = []
         self.names_mapping = self._load_names_mapping()
+        
+        # Инициализиране на MediaPipe Face Detection
+        self.mp_face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=1, # 0 за близки лица (2м), 1 за далечни (5м)
+            min_detection_confidence=0.5
+        )
 
     def _load_names_mapping(self):
         try:
@@ -140,8 +147,41 @@ class FaceManager:
             print(f"  [ERROR] {image_path}: {e}")
 
     def identify_face(self, frame):
+        height, width = frame.shape[:2]
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        face_locations = face_recognition.face_locations(rgb_frame)
+        
+        # 1. Засичане чрез MediaPipe
+        results = self.mp_face_detection.process(rgb_frame)
+        
+        face_locations = []
+        if results.detections:
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                
+                # Конвертиране от нормализирани (0-1) към пикселни координати
+                # MediaPipe: xmin, ymin, width, height
+                # face_recognition изисква: (top, right, bottom, left)
+                left = int(bbox.xmin * width)
+                top = int(bbox.ymin * height)
+                right = int((bbox.xmin + bbox.width) * width)
+                bottom = int((bbox.ymin + bbox.height) * height)
+                
+                # Добавяме лек padding, защото MediaPipe е много агресивен в изрязването
+                # face_recognition се справя по-добре с малко повече контекст около лицето
+                pad_w = int(bbox.width * width * 0.1)
+                pad_h = int(bbox.height * height * 0.1)
+                
+                left = max(0, left - pad_w)
+                top = max(0, top - pad_h)
+                right = min(width, right + pad_w)
+                bottom = min(height, bottom + pad_h)
+                
+                face_locations.append((top, right, bottom, left))
+
+        if not face_locations:
+            return [], []
+
+        # 2. Разпознаване чрез face_recognition (използвайки локациите от MediaPipe)
         face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
 
         face_names = []
@@ -155,4 +195,5 @@ class FaceManager:
                     if matches[best_match_index]:
                         name = self.known_face_names[best_match_index]
             face_names.append(name)
+        
         return face_locations, face_names
