@@ -47,7 +47,7 @@ def get_video_stream():
             if frame:
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.04) # ~25 FPS
+        time.sleep(0.07) # Ограничаваме до ~14 FPS за пестене на трафик
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
