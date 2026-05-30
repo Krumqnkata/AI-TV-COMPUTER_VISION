@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School AI - Control Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #0a0a0c;
+            color: #e2e8f0;
+        }
+        .cyber-border {
+            border: 1px solid #00f2ff;
+            box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+        }
+        .cyber-bg {
+            background: rgba(15, 15, 20, 0.8);
+            backdrop-filter: blur(10px);
+        }
+        .glow-text {
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #0891b2; border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8 border-b border-cyan-900 pb-4">
+            <div>
+                <h1 class="text-4xl font-bold tracking-tighter text-cyan-400 glow-text">SCHOOL AI <span class="text-white">OS</span></h1>
+                <p class="text-sm text-cyan-600 uppercase tracking-widest">Web Control Interface v3.0 [WEBSOCKETS]</p>
+            </div>
+            <div id="system-status" class="px-4 py-1 rounded border border-green-500 text-green-500 text-sm font-bold animate-pulse">
+                SYSTEM ACTIVE
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left Column: Video Feed & Logs -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="cyber-border rounded-lg overflow-hidden relative">
+                    <img src="/video_feed" alt="Video Stream" class="w-full h-auto bg-black">
+                    <div class="absolute top-4 left-4 bg-black/60 px-3 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30">
+                        LIVE_FEED // 1920x1080
+                    </div>
+                </div>
+
+                <!-- Activity Log -->
+                <div class="cyber-bg cyber-border p-4 rounded-lg">
+                    <h3 class="text-cyan-500 text-[10px] font-bold uppercase mb-2 tracking-widest">System Activity Log</h3>
+                    <div id="activity-log" class="h-32 overflow-y-auto text-xs font-mono space-y-1 custom-scrollbar">
+                        <div class="text-slate-500">[SYSTEM] WebSocket connection established.</div>
+                    </div>
+                </div>
+
+                <!-- Controls & Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="cyber-bg cyber-border p-6 rounded-lg">
+                        <h3 class="text-cyan-500 text-xs font-bold uppercase mb-4 tracking-widest">Statistics</h3>
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-4xl font-bold" id="total-count">0</p>
+                                <p class="text-xs text-slate-500 uppercase">Засечени днес</p>
+                            </div>
+                            <div class="h-12 w-12 border-2 border-cyan-500/30 rounded-full flex items-center justify-center">
+                                <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="cyber-bg cyber-border p-6 rounded-lg flex flex-col justify-between">
+                        <h3 class="text-cyan-500 text-xs font-bold uppercase mb-4 tracking-widest">System Control</h3>
+                        <button id="toggle-btn" onclick="toggleSystem()" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(8,145,178,0.4)]">
+                            Pause System
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Face Management -->
+            <div class="space-y-6">
+                <div class="cyber-bg cyber-border p-6 rounded-lg h-full">
+                    <h3 class="text-cyan-500 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900 pb-2">Face Management</h3>
+                    
+                    <!-- Upload Form -->
+                    <div class="mb-6 space-y-4">
+                        <input type="text" id="face-name" placeholder="Име на лице" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-sm focus:border-cyan-500 outline-none">
+                        <div class="relative group">
+                            <input type="file" id="face-file" class="hidden">
+                            <label for="face-file" class="block w-full text-center border-2 border-dashed border-slate-700 py-4 cursor-pointer hover:border-cyan-500 transition-colors text-xs uppercase text-slate-500">
+                                Избери снимка
+                            </label>
+                        </div>
+                        <button onclick="uploadFace()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-bold rounded text-xs uppercase tracking-widest border border-cyan-900">
+                            Добави лице
+                        </button>
+                    </div>
+
+                    <!-- Face List -->
+                    <h4 class="text-[10px] text-slate-500 uppercase mb-2 tracking-widest">Known Faces</h4>
+                    <div id="face-list" class="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        <!-- Items injected via JS -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        function connectWebSocket() {
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                logActivity('WebSocket', 'Connection established', 'text-cyan-400');
+            };
+
+            socket.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleServerEvent(msg);
+            };
+
+            socket.onclose = () => {
+                logActivity('SYSTEM', 'WebSocket disconnected. Retrying...', 'text-red-500');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+            };
+        }
+
+        function handleServerEvent(msg) {
+            const { type, data } = msg;
+
+            switch (type) {
+                case 'initial_state':
+                    updateUI(data);
+                    break;
+                case 'status_change':
+                    updateUI(data);
+                    logActivity('CONTROL', `System processing: ${data.is_processing ? 'ACTIVE' : 'PAUSED'}`, 'text-yellow-400');
+                    break;
+                case 'recognition':
+                    document.getElementById('total-count').innerText = data.total;
+                    logActivity('RECOGNITION', `Detected: ${data.name}`, 'text-green-400');
+                    break;
+            }
+        }
+
+        function updateUI(data) {
+            if (data.total !== undefined) document.getElementById('total-count').innerText = data.total;
+            
+            const statusEl = document.getElementById('system-status');
+            const toggleBtn = document.getElementById('toggle-btn');
+            
+            if (data.is_processing) {
+                statusEl.innerText = 'SYSTEM ACTIVE';
+                statusEl.className = 'px-4 py-1 rounded border border-green-500 text-green-500 text-sm font-bold animate-pulse';
+                toggleBtn.innerText = 'Pause System';
+                toggleBtn.className = 'w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(8,145,178,0.4)]';
+            } else {
+                statusEl.innerText = 'SYSTEM PAUSED';
+                statusEl.className = 'px-4 py-1 rounded border border-red-500 text-red-500 text-sm font-bold';
+                toggleBtn.innerText = 'Start System';
+                toggleBtn.className = 'w-full py-3 bg-red-900 hover:bg-red-800 text-white font-bold rounded transition-all uppercase tracking-widest text-sm';
+            }
+        }
+
+        function logActivity(source, message, colorClass) {
+            const log = document.getElementById('activity-log');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
+            log.prepend(entry);
+        }
+
+        async function toggleSystem() {
+            try {
+                await fetch('/api/toggle', { method: 'POST' });
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadFaces() {
+            try {
+                const res = await fetch('/api/faces');
+                const faces = await res.json();
+                const list = document.getElementById('face-list');
+                list.innerHTML = '';
+                faces.forEach(name => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-2 bg-black/20 border border-slate-800 rounded text-sm group hover:border-cyan-500/50 transition-colors';
+                    div.innerHTML = `
+                        <span class="text-slate-300">${name}</span>
+                        <span class="text-[10px] text-cyan-600 font-mono">ENCODED</span>
+                    `;
+                    list.appendChild(div);
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function uploadFace() {
+            const name = document.getElementById('face-name').value;
+            const fileInput = document.getElementById('face-file');
+            
+            if (!name || !fileInput.files[0]) {
+                alert('Моля въведете име и изберете файл!');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const res = await fetch(`/api/upload?name=${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+                if (result.success) {
+                    document.getElementById('face-name').value = '';
+                    fileInput.value = '';
+                    loadFaces();
+                    logActivity('SYSTEM', `Uploaded new face for: ${name}`, 'text-cyan-400');
+                } else {
+                    alert('Грешка: ' + result.message);
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        // Initialize
+        connectWebSocket();
+        loadFaces();
+    </script>
+</body>
+</html>

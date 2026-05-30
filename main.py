@@ -9,6 +9,8 @@ from engine.face_manager import FaceManager
 from engine.tts_manager import TTSManager
 from engine.people_counter import DailyPeopleCounter
 from utils.logger import log_system
+from engine.state_manager import StateManager
+from web.server import start_web_server
 
 # Цветове (BGR формат за OpenCV)
 COLOR_CYAN = (255, 255, 0)
@@ -34,10 +36,11 @@ except Exception:
 
 class FaceRecognitionWorker:
     """ Работник във фонов режим за разпознаване на лица без блокиране на GUI нишката """
-    def __init__(self, face_manager, tts_manager, people_counter):
+    def __init__(self, face_manager, tts_manager, people_counter, state_manager=None):
         self.face_manager = face_manager
         self.tts_manager = tts_manager
         self.people_counter = people_counter
+        self.state_manager = state_manager
         self.frame_to_process = None
         self.face_data = []
         self.lock = threading.Lock()
@@ -67,6 +70,9 @@ class FaceRecognitionWorker:
                     if name != "Unknown":
                         self.people_counter.register(name)
                         self.tts_manager.speak_joke(name)
+                        # Изпращаме известие до уеб панела в реално време
+                        if self.state_manager:
+                            self.state_manager.on_face_recognized(name)
                     else:
                         unknown_in_frame += 1
 
@@ -270,10 +276,17 @@ def draw_ui(frame, face_data, is_processing, people_counter):
 def main():
     log_system("STARTING CYBER-HUD INTERFACE (HD QUALITY)")
     
+    # Инициализиране на мениджъра на състоянието
+    state_manager = StateManager()
+    
     face_manager = FaceManager(Config.FACES_DATA_PATH)
     face_manager.load_faces()
     
     tts_manager = TTSManager(Config.JOKES_FILE_PATH, Config.COOLDOWN_SECONDS)
+    
+    # Стартиране на уеб сървъра
+    start_web_server(state_manager, face_manager)
+    log_system("Web Control Panel active at http://localhost:5000")
     
     source = Config.CAMERA_SOURCE
     is_ip_camera = isinstance(source, str)
@@ -314,18 +327,23 @@ def main():
 
     # Брояч на уникални разпознати хора за деня
     people_counter = DailyPeopleCounter()
+    state_manager.set_people_counter(people_counter)
 
     # Стартиране на фоновия работник за лицево разпознаване
-    recognition_worker = FaceRecognitionWorker(face_manager, tts_manager, people_counter)
+    recognition_worker = FaceRecognitionWorker(face_manager, tts_manager, people_counter, state_manager)
     recognition_worker.start()
 
     frame_count = 0
     process_every_n_frames = Config.PROCESS_EVERY_N_FRAMES  # Изпращай нов кадър за анализ на всеки n кадъра
-    is_processing = True
+    
+    state_manager.set_status("Running")
 
-    while True:
+    while state_manager.should_continue():
         ret, frame = video_capture.read()
         if not ret: break
+
+        # Синхронизираме състоянието за пауза с уеб панела
+        is_processing = state_manager.is_processing()
 
         # ЪПСКЕЙЛ: Ако камерата дава по-ниска резолюция, качествено ъпскейлваме ПРЕДИ рисуване на текста.
         # Това гарантира, че текстът се рендерира в Full HD пространство и никога не е пикселизиран.
@@ -342,6 +360,10 @@ def main():
 
         # Рисуването е оптимизирано и плавно при всеки кадър
         frame = draw_ui(frame, face_data, is_processing, people_counter)
+        
+        # Обновяваме кадъра за уеб стрийминга
+        state_manager.update_frame(frame)
+        
         cv2.imshow(win_name, frame)
 
         frame_count += 1
@@ -349,11 +371,12 @@ def main():
         # Изход
         key = cv2.waitKey(1) & 0xFF
         if key == ord(' '): # Toggle with Space
-            is_processing = not is_processing
-            log_system(f"System {'ACTIVE' if is_processing else 'PAUSED'}")
+            state_manager.set_processing(not state_manager.is_processing())
+            log_system(f"System {'ACTIVE' if state_manager.is_processing() else 'PAUSED'}")
         
         if key == ord('q') or key == 27 or cv2.getWindowProperty(win_name, cv2.WND_PROP_VISIBLE) < 1:
             log_system("System stopped by user.")
+            state_manager.stop_system()
             break
 
     recognition_worker.running = False
