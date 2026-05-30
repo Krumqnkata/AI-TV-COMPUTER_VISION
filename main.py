@@ -43,6 +43,8 @@ class FaceRecognitionWorker:
         self.state_manager = state_manager
         self.frame_to_process = None
         self.face_data = []
+        self.face_history = {} # {name: count}
+        self.persistence_threshold = 3 # Минимум засичания за потвърждение
         self.lock = threading.Lock()
         self.running = True
         self.thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -66,19 +68,31 @@ class FaceRecognitionWorker:
                 face_locations, face_names = self.face_manager.identify_face(small_frame)
 
                 temp_face_data = []
+                current_names = set(face_names)
                 unknown_in_frame = 0
+                
+                # Обновяваме историята за стабилност
+                new_history = {}
+                
                 for (top, right, bottom, left), name in zip(face_locations, face_names):
-                    # Връщаме координатите към оригиналния мащаб
-                    scale = 1.0 / resize_factor
-                    temp_face_data.append(((int(top * scale), int(right * scale), int(bottom * scale), int(left * scale)), name))
-                    if name != "Unknown":
-                        self.people_counter.register(name)
-                        self.tts_manager.speak_joke(name)
-                        # Изпращаме известие до уеб панела в реално време
-                        if self.state_manager:
-                            self.state_manager.on_face_recognized(name)
-                    else:
-                        unknown_in_frame += 1
+                    # Броим засичанията за всяко име
+                    count = self.face_history.get(name, 0) + 1
+                    new_history[name] = count
+                    
+                    # Само ако е засечено достатъчно пъти, го показваме/обработваме
+                    if count >= self.persistence_threshold:
+                        scale = 1.0 / resize_factor
+                        temp_face_data.append(((int(top * scale), int(right * scale), int(bottom * scale), int(left * scale)), name))
+                        
+                        if name != "Unknown":
+                            self.people_counter.register(name)
+                            self.tts_manager.speak_joke(name)
+                            if self.state_manager:
+                                self.state_manager.on_face_recognized(name)
+                        else:
+                            unknown_in_frame += 1
+                
+                self.face_history = new_history
 
                 # Обновяваме брояча за непознати (брои само НОВИ появявания)
                 self.people_counter.update_unknowns(unknown_in_frame)

@@ -20,6 +20,16 @@ class FaceManager:
             model_selection=1, # 0 за близки лица (2м), 1 за далечни (5м)
             min_detection_confidence=0.5
         )
+        # CLAHE за подобряване на контраста
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+    def _apply_clahe(self, image):
+        """Прилага CLAHE върху L-канала в LAB цветовото пространство."""
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        l_enhanced = self.clahe.apply(l)
+        lab_enhanced = cv2.merge((l_enhanced, a, b))
+        return cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
 
     def _load_names_mapping(self):
         try:
@@ -136,7 +146,11 @@ class FaceManager:
             
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             
-            encodings = face_recognition.face_encodings(rgb_image)
+            # Прилагаме CLAHE за по-добро разпознаване
+            enhanced_image = self._apply_clahe(image)
+            enhanced_rgb = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2RGB)
+            
+            encodings = face_recognition.face_encodings(enhanced_rgb)
             if encodings:
                 self.known_face_encodings.append(encodings[0])
                 self.known_face_names.append(name)
@@ -182,7 +196,11 @@ class FaceManager:
             return [], []
 
         # 2. Разпознаване чрез face_recognition (използвайки локациите от MediaPipe)
-        face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+        # Прилагаме CLAHE върху целия кадър за по-добро извличане на черти
+        enhanced_frame = self._apply_clahe(frame)
+        enhanced_rgb = cv2.cvtColor(enhanced_frame, cv2.COLOR_BGR2RGB)
+        
+        face_encodings = face_recognition.face_encodings(enhanced_rgb, face_locations)
 
         face_names = []
         for face_encoding in face_encodings:
