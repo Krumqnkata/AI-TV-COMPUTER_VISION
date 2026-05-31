@@ -31,6 +31,10 @@ class Config:
     
     PIPER_MODEL_PATH = os.getenv("PIPER_MODEL_PATH", os.path.join("engine", "piper", "bg_BG-dimitar-medium.onnx"))
 
+    OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "false").lower() == "true"
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+
     # Логове
     LOGS_DIR = "logs"
     if not os.path.exists(LOGS_DIR):

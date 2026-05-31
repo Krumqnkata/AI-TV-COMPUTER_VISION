@@ -3,6 +3,7 @@ opencv-python==4.13.0.92
 pillow==12.2.0
 pygame==2.6.1
 google-genai==2.7.0
+ollama
 piper-tts==1.4.2
 gTTS==2.5.4
 python-dotenv==1.2.2

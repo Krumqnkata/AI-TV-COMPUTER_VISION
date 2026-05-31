@@ -6,7 +6,7 @@ import wave
 from threading import Thread
 from queue import Queue
 import pygame
-from google import genai
+from engine.llm_manager import LLMManager
 from utils.config import Config
 from utils.logger import log_system, log_recognition
 from piper.voice import PiperVoice
@@ -21,16 +21,8 @@ class TTSManager:
         self.speech_queue = Queue()
         self.state_manager = state_manager
         
-        # Инициализиране на Gemini AI (Нов SDK)
-        self.ai_enabled = False
-        if Config.GEMINI_API_KEY:
-            try:
-                self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
-                self.model_id = Config.GEMINI_MODEL_ID
-                self.ai_enabled = True
-                log_system(f"Gemini AI initialized with model: {self.model_id}")
-            except Exception as e:
-                log_system(f"Failed to initialize Gemini AI: {e}", "error")
+        # Инициализиране на LLM мениджъра (Ollama + Gemini fallback)
+        self.llm_manager = LLMManager()
 
         # Инициализиране на Piper TTS
         self.piper_enabled = False
@@ -81,10 +73,7 @@ class TTSManager:
             return {}
 
     def _generate_ai_joke(self, name):
-        """ Генерира шега чрез Gemini AI с рандомизирани и оптимизирани стилове """
-        if not self.ai_enabled:
-            return None
-        
+        """ Генерира шега чрез LLM (Ollama с фолбек към Gemini) """
         # Списъци за динамично конструиране на огромен брой уникални роли и настроения
         tones = [
             "саркастичен", "супер ентусиазиран", "параноичен", "драматичен", 
@@ -113,33 +102,22 @@ class TTSManager:
         else:
             prompt = f"Стил: {style} Разпознат е човек с име {name}."
 
-        try:
-            # Използваме system_instruction за по-ефективно кеширане на контекста и спестяване на токени
-            system_instruction = (
-                "Ти си гласов асистент за училищно AI огледало. Твоята задача е да напишеш една "
-                "ЕДИНСТВЕНА, оригинална, много кратка и забавна закачка/реплика на български език, "
-                "базирана на подадения стил и име. Правила: 1. Максимум едно кратко изречение. "
-                "2. БЕЗ въвеждащи думи, кавички, звездички или обяснения. "
-                "3. БЕЗ емоджита (тъй като гласовият синтезатор не може да ги изчете)."
-            )
+        system_instruction = (
+            "Ти си гласов асистент за училищно AI огледало. Твоята задача е да напишеш една "
+            "ЕДИНСТВЕНА, оригинална, много кратка и забавна закачка/реплика на български език, "
+            "базирана на подадения стил и име. Правила: 1. Максимум едно кратко изречение. "
+            "2. БЕЗ въвеждащи думи, кавички, звездички или обяснения. "
+            "3. БЕЗ емоджита (тъй като гласовият синтезатор не може да ги изчете)."
+        )
 
-            # Вдигаме temperature за по-нестандартни отговори
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=prompt,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=Config.AI_TEMPERATURE,
-                )
-            )
-            if response and response.text:
-                joke = response.text.strip()
-                # Изчистване на случайни останали кавички и звездички за по-чисто изговаряне
-                joke = joke.replace('"', '').replace('*', '').replace('„', '').replace('“', '') 
-                log_system(f"AI generated joke for {name} (Style: {style})")
-                return joke
-        except Exception as e:
-            log_system(f"Gemini AI error: {e}", "error")
+        joke = self.llm_manager.generate(prompt, system_instruction)
+        
+        if joke:
+            # Изчистване на случайни останали кавички и звездички за по-чисто изговаряне
+            joke = joke.replace('"', '').replace('*', '').replace('„', '').replace('“', '') 
+            log_system(f"AI generated joke for {name} (Style: {style})")
+            return joke
+        
         return None
 
     def speak_joke(self, name):
@@ -209,7 +187,7 @@ class TTSManager:
             # 2. Ако имаме вече поне 3 уникални генерирани шеги за този човек, в 60% от случаите ги преизползваме
             # 3. Иначе правим нова заявка към Gemini API
             use_cache = False
-            if not self.ai_enabled or self._is_api_rate_limited():
+            if not (self.llm_manager.ollama_enabled or self.llm_manager.gemini_enabled) or self._is_api_rate_limited():
                 use_cache = True
             elif len(cached_list) >= 3 and random.random() < Config.AI_CACHE_REUSE_PROB:
                 use_cache = True
@@ -219,7 +197,7 @@ class TTSManager:
                 log_system(f"Reusing cached AI joke for {name} (Token saving / Rate limiter active)")
 
             # Ако не ползваме кеш (или няма такъв) и API е достъпно
-            if not joke and self.ai_enabled and not self._is_api_rate_limited():
+            if not joke and (self.llm_manager.ollama_enabled or self.llm_manager.gemini_enabled) and not self._is_api_rate_limited():
                 joke = self._generate_ai_joke(name)
                 if joke:
                     # Добавяме новата шега в кеша
