@@ -15,6 +15,8 @@ class TTSManager:
     def __init__(self, jokes_file, cooldown, state_manager=None):
         self.cooldown = cooldown
         self.last_seen = {} # {name: timestamp}
+        self.last_greeted = {} # {name: timestamp}
+        self.GREETING_COOLDOWN = 3600 # 1 час
         self.jokes = self.load_jokes(jokes_file)
         self.speech_queue = Queue()
         self.state_manager = state_manager
@@ -60,6 +62,15 @@ class TTSManager:
 
         # Стартираме фонова нишка за обработка на опашката от шеги
         Thread(target=self._worker, daemon=True).start()
+
+    def _get_greeting(self):
+        hour = time.localtime().tm_hour
+        if 5 <= hour < 12:
+            return "Добро утро"
+        elif 12 <= hour < 18:
+            return "Добър ден"
+        else:
+            return "Добър вечер"
 
     def load_jokes(self, jokes_file):
         try:
@@ -232,8 +243,15 @@ class TTSManager:
             
             # 3. Ако имаме шега, я превръщаме в говор и я пускаме
             if joke:
+                # Проверка дали трябва да поздравим
+                current_time = time.time()
+                if name not in self.last_greeted or (current_time - self.last_greeted[name] > self.GREETING_COOLDOWN):
+                    greeting = self._get_greeting()
+                    joke = f"{greeting}, {name}! {joke}"
+                    self.last_greeted[name] = current_time
+
                 self._generate_and_play(joke)
-                
+
             self.speech_queue.task_done()
 
     def _generate_and_play(self, text):
