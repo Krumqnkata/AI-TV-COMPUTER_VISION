@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pickle
 import json
+import hashlib
 import mediapipe as mp
 from utils.config import Config
 
@@ -70,48 +71,72 @@ class FaceManager:
         except Exception as e:
             print(f"Error saving names mapping: {e}")
 
-    def load_faces(self):
-        # Преброяваме колко снимки/папки имаме реално в директорията
-        current_items = os.listdir(self.faces_path)
+    def _calculate_faces_fingerprint(self):
+        """
+        Генерира уникален хеш за цялата папка с лица.
+        Следи за промени в имената, размерите и датите на промяна на всички файлове.
+        """
+        if not os.path.exists(self.faces_path):
+            return "no_folder"
+            
+        fingerprint_parts = []
         
-        # 1. Проверка на кеша
-        if os.path.exists(self.cache_path):
-            with open(self.cache_path, 'rb') as f:
-                data = pickle.load(f)
-                
-            # Проверяваме дали броят на уникалните имена в кеша съвпада с броя на обектите в папката
-            cached_names_count = len(set(data['names']))
+        # Обхождаме всички файлове рекурсивно
+        for root, dirs, files in os.walk(self.faces_path):
+            for file in sorted(files):
+                if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    file_path = os.path.join(root, file)
+                    try:
+                        stats = os.stat(file_path)
+                        # Събираме метаданни за файла: път, размер, дата на последна промяна
+                        fingerprint_parts.append(f"{file_path}_{stats.st_size}_{stats.st_mtime}")
+                    except Exception:
+                        continue
+        
+        if not fingerprint_parts:
+            return "empty"
             
-            # Преброяваме папките плюс директните файлове с изображения
-            actual_items_count = 0
-            for item in current_items:
-                item_path = os.path.join(self.faces_path, item)
-                if os.path.isdir(item_path):
-                    actual_items_count += 1
-                elif os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    actual_items_count += 1
-            
-            # Ако броят съвпада, зареждаме мигновено
-            if cached_names_count == actual_items_count and actual_items_count > 0:
-                print("Loading from cache (no changes in faces)...")
-                self.known_face_encodings = data['encodings']
-                self.known_face_names = data['names']
-                print(f"DONE: Loaded {len(set(self.known_face_names))} faces.")
-                return
-            else:
-                print("Changes detected in photos. Recalculating faces...")
+        # Създаваме един общ хеш от всички метаданни
+        full_string = "|".join(fingerprint_parts)
+        return hashlib.md5(full_string.encode('utf-8')).hexdigest()
 
-        # 2. Ако кешът е остарял или го няма, анализираме снимките
+    def load_faces(self):
+        # 1. Изчисляваме текущия отпечатък на папката
+        current_fingerprint = self._calculate_faces_fingerprint()
+        
+        # 2. Проверка на кеша
+        if os.path.exists(self.cache_path):
+            try:
+                with open(self.cache_path, 'rb') as f:
+                    data = pickle.load(f)
+                
+                # Проверяваме дали отпечатъкът съвпада
+                cached_fingerprint = data.get('fingerprint', '')
+                
+                if current_fingerprint == cached_fingerprint and current_fingerprint != "empty":
+                    print("Loading from cache (no changes in faces detected)...")
+                    self.known_face_encodings = data['encodings']
+                    self.known_face_names = data['names']
+                    print(f"DONE: Loaded {len(set(self.known_face_names))} faces from cache.")
+                    return
+                else:
+                    print(f"Changes detected in photos (or cache is old). Recalculating encodings...")
+            except Exception as e:
+                print(f"Error reading cache: {e}. Rebuilding...")
+
+        # 3. Ако кешът е остарял или го няма, анализираме снимките
         if not os.path.exists(self.faces_path):
             os.makedirs(self.faces_path)
             
+        current_items = os.listdir(self.faces_path)
         for item in current_items:
             item_path = os.path.join(self.faces_path, item)
             
             if os.path.isdir(item_path):
                 person_name = self._get_mapped_name(item)
                 for image_name in os.listdir(item_path):
-                    self._process_image(os.path.join(item_path, image_name), person_name)
+                    if image_name.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        self._process_image(os.path.join(item_path, image_name), person_name)
             
             elif os.path.isfile(item_path) and item.lower().endswith(('.png', '.jpg', '.jpeg')):
                 person_name = os.path.splitext(item)[0]
@@ -119,14 +144,15 @@ class FaceManager:
                 person_name = self._get_mapped_name(person_name)
                 self._process_image(item_path, person_name)
 
-        # 3. Обновяваме кеша
+        # 4. Обновяваме кеша с новия отпечатък
         if self.known_face_encodings:
             with open(self.cache_path, 'wb') as f:
                 pickle.dump({
                     'encodings': self.known_face_encodings,
-                    'names': self.known_face_names
+                    'names': self.known_face_names,
+                    'fingerprint': current_fingerprint
                 }, f)
-            print("Cache updated with new faces.")
+            print(f"Cache updated with new faces. Fingerprint: {current_fingerprint}")
 
     def _process_image(self, image_path, name):
         try:

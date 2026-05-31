@@ -167,129 +167,132 @@ def _render_pil_text_on_frame(frame, text, position, font, color_rgb):
     frame[roi_y1:roi_y2, roi_x1:roi_x2] = cv2.cvtColor(np.array(pil_roi), cv2.COLOR_RGB2BGR)
 
 
-def draw_ui(frame, face_data, is_processing, people_counter):
-    """ Основна функция за рисуване на модерния интерфейс """
-    height, width = frame.shape[:2]
-    
-    # 1. Глобален HUD (Горен панел) - Оптимизиран: блендваме само ROI (горните 80 пиксела за Full HD)
-    roi = frame[0:80, 0:width]
-    overlay = roi.copy()
-    cv2.rectangle(overlay, (0, 0), (width, 80), (30, 30, 30), -1)
-    cv2.addWeighted(overlay, 0.6, roi, 0.4, 0, roi)
-
-    status_text = "SYSTEM: ACTIVE" if is_processing else "SYSTEM: PAUSED"
-    time_str = datetime.now().strftime("%H:%M:%S")
-
-    # Рисуваме HUD текстовете чрез PIL за кристален антиалиасиран текст
-    status_color_rgb = (0, 255, 0) if is_processing else (255, 0, 0)
-
-    # Изчисляваме позицията за центриран статус текст
-    try:
-        status_w = int(FONT_MAIN.getlength(status_text))
-    except Exception:
-        status_w = len(status_text) * 20
-    status_x = (width - status_w) // 2
-
-    _render_pil_text_on_frame(frame, "SCHOOL AI", (20, 18), FONT_MAIN, (0, 255, 255))
-    _render_pil_text_on_frame(frame, status_text, (status_x, 18), FONT_MAIN, status_color_rgb)
-    _render_pil_text_on_frame(frame, f"TIME: {time_str}", (width - 290, 18), FONT_MAIN, (255, 255, 255))
-
-    # Рисуваме елементи за всяко лице
-    for (top, right, bottom, left), name in face_data:
-        length = 35
-        t = 3
-        color_neon = (255, 255, 0) # Cyan в BGR формат за OpenCV
+class UIManager:
+    """ Управлява предварително рендерираните графични активи за максимална производителност """
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.assets = {}
+        self.last_status = None
+        self.last_time_str = None
+        self.last_count = -1
         
-        # Cyber Brackets (OpenCV - нативно и изключително бързо)
-        # Горно-ляво
-        cv2.line(frame, (left, top), (left + length, top), color_neon, t)
-        cv2.line(frame, (left, top), (left, top + length), color_neon, t)
-        # Горно-дясно
-        cv2.line(frame, (right, top), (right - length, top), color_neon, t)
-        cv2.line(frame, (right, top), (right, top + length), color_neon, t)
-        # Долно-ляво
-        cv2.line(frame, (left, bottom), (left + length, bottom), color_neon, t)
-        cv2.line(frame, (left, bottom), (left, bottom - length), color_neon, t)
-        # Долно-дясно
-        cv2.line(frame, (right, bottom), (right - length, bottom), color_neon, t)
-        cv2.line(frame, (right, bottom), (right, bottom - length), color_neon, t)
+        # Система за известия
+        self.notification_text = ""
+        self.notification_expiry = 0
+        self.notification_asset = None
+        self.notification_mask = None
+        
+        # Предварително рендериране на статични компоненти
+        self._pre_render_static_elements()
 
-        # Подложка за името (Cyrillic Text Support via PIL on Small Crop Only)
-        label_text = f"NAME: {name}"
-        
-        # Изчисляваме динамично ширината на текста според шрифта
-        try:
-            text_width = int(FONT_SMALL.getlength(label_text))
-        except Exception:
-            text_width = len(label_text) * 22  # Приблизителен фолбек за един символ
-            
-        label_h = 55
-        # Ширината е по-голямата стойност между ширината на лицето и дължината на текста + отстъп
-        label_w = max(right - left, text_width + 25)
-            
-        # Защита за границите на екрана (ако кутията излиза отдясно, я преместваме наляво)
-        y1 = max(0, top - label_h)
-        y2 = max(0, top)
-        
-        x2 = left + label_w
-        if x2 > width:
-            x2 = width
-            x1 = max(0, x2 - label_w)
+    def _pre_render_static_elements(self):
+        """ Рендерира веднъж елементите, които никога не се променят """
+        # 1. Горна HUD лента (основа)
+        hud_h = 80
+        hud_base = np.zeros((hud_h, self.width, 3), dtype=np.uint8)
+        cv2.rectangle(hud_base, (0, 0), (self.width, hud_h), (30, 30, 30), -1)
+        self.assets['hud_base'] = hud_base
+
+        # 2. SCHOOL AI Текст (PIL рендериране веднъж)
+        title_img = Image.new("RGBA", (300, 80), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(title_img)
+        draw.text((20, 18), "SCHOOL AI", font=FONT_MAIN, fill=(255, 255, 0, 255)) # Cyan
+        self.assets['title'] = cv2.cvtColor(np.array(title_img.convert("RGB")), cv2.COLOR_RGB2BGR)
+        self.assets['title_mask'] = np.array(title_img)[:, :, 3] > 0
+
+        # 3. Долен панел (основа)
+        panel_w, panel_h = 380, 60
+        panel_base = np.zeros((panel_h, panel_w, 3), dtype=np.uint8)
+        cv2.rectangle(panel_base, (0, 0), (panel_w, panel_h), (20, 20, 20), -1)
+        cv2.line(panel_base, (0, 0), (panel_w, 0), (255, 255, 0), 2) # Cyan border
+        self.assets['panel_base'] = panel_base
+
+    def _render_text_asset(self, text, font, color_rgb, size):
+        """ Помощна функция за рендериране на PIL текст в OpenCV формат """
+        img = Image.new("RGBA", size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.text((0, 0), text, font=font, fill=(*color_rgb, 255))
+        cv_img = cv2.cvtColor(np.array(img.convert("RGB")), cv2.COLOR_RGB2BGR)
+        mask = np.array(img)[:, :, 3] > 0
+        return cv_img, mask
+
+    def show_notification(self, name, duration=3):
+        """ Задава ново известие за разпознат човек """
+        if name == "Unknown" or name == "Непознат":
+            text = "ЗАСЕЧЕН Е НЕПОЗНАТ"
+            color = (200, 200, 200)
         else:
-            x1 = max(0, left)
+            text = f"РАЗПОЗНАТ: {name.upper()}"
+            color = (0, 255, 255) # Cyan
+
+        if text != self.notification_text:
+            self.notification_text = text
+            try:
+                tw = int(FONT_MAIN.getlength(text))
+            except: tw = 400
+            self.notification_asset, self.notification_mask = self._render_text_asset(
+                text, FONT_MAIN, color, (tw + 20, 50)
+            )
         
-        if y2 > y1 and x2 > x1:
-            # Изрязваме само малката лента за надписа
-            sub_img = frame[y1:y2, x1:x2].copy()
-            
-            # Нанасяме полупрозрачен черен цвят върху нея
-            overlay_box = np.zeros_like(sub_img)
-            cv2.rectangle(overlay_box, (0, 0), (x2 - x1, y2 - y1), (0, 0, 0), -1)
-            cv2.addWeighted(overlay_box, 0.6, sub_img, 0.4, 0, sub_img)
-            
-            # Конвертираме САМО тази микро-картинка към PIL за текстовия рендеринг
-            sub_pil = Image.fromarray(cv2.cvtColor(sub_img, cv2.COLOR_BGR2RGB))
-            draw_sub = ImageDraw.Draw(sub_pil)
-            
-            # Рисуваме кирилския текст върху микро-картинката (вертикално центриран)
-            draw_sub.text((10, 5), label_text, font=FONT_SMALL, fill=(255, 255, 255))
-            
-            # Връщаме обратно в OpenCV формат и вграждаме в големия кадър
-            sub_img_final = cv2.cvtColor(np.array(sub_pil), cv2.COLOR_RGB2BGR)
-            frame[y1:y2, x1:x2] = sub_img_final
+        self.notification_expiry = time.time() + duration
 
-    # 3. Брояч "Засечени днес" (долен ляв ъгъл) - компактен панел само с бройка
-    count = people_counter.get_count()
+    def draw(self, frame, face_data, is_processing, people_counter):
+        # Обновяваме известията на база на засечените лица в момента
+        for _, name in face_data:
+            if name: self.show_notification(name)
 
-    panel_w = 380
-    panel_h = 60
+        # 1. Горна HUD лента
+        roi_hud = frame[0:80, 0:self.width]
+        cv2.addWeighted(self.assets['hud_base'], 0.6, roi_hud, 0.4, 0, roi_hud)
 
-    panel_x1 = 15
-    panel_y1 = height - panel_h - 15
-    panel_x2 = panel_x1 + panel_w
-    panel_y2 = height - 15
+        # 2. SCHOOL AI Заглавие
+        title_h, title_w = self.assets['title'].shape[:2]
+        mask_title = self.assets['title_mask']
+        roi_title = frame[0:title_h, 0:title_w]
+        roi_title[mask_title] = self.assets['title'][mask_title]
 
-    # Клампваме координатите в рамките на кадъра
-    panel_y1 = max(0, panel_y1)
-    panel_x2 = min(width, panel_x2)
+        # 3. Интелигентно известие (в горния HUD)
+        current_time = time.time()
+        if current_time < self.notification_expiry and self.notification_asset is not None:
+            n_h, n_w = self.notification_asset.shape[:2]
+            # Поставяме го след заглавието
+            start_x = 320 
+            if start_x + n_w < self.width - 320: # Проверка да не застъпи часовника
+                roi_notif = frame[18:18+n_h, start_x:start_x+n_w]
+                roi_notif[self.notification_mask] = self.notification_asset[self.notification_mask]
 
-    if panel_y2 > panel_y1 and panel_x2 > panel_x1:
-        # Полупрозрачен тъмен фон за панела
-        roi_panel = frame[panel_y1:panel_y2, panel_x1:panel_x2].copy()
-        overlay_panel = np.zeros_like(roi_panel)
-        cv2.rectangle(overlay_panel, (0, 0), (panel_w, panel_h), (20, 20, 20), -1)
-        cv2.addWeighted(overlay_panel, 0.7, roi_panel, 0.3, 0, roi_panel)
+        # 4. Динамичен часовник
+        time_str = datetime.now().strftime("TIME: %H:%M:%S")
+        if time_str != self.last_time_str:
+            self.assets['time'], self.assets['time_mask'] = self._render_text_asset(
+                time_str, FONT_MAIN, (255, 255, 255), (290, 50)
+            )
+            self.last_time_str = time_str
 
-        # Тънка cyan рамка отгоре
-        cv2.line(roi_panel, (0, 0), (panel_w, 0), (255, 255, 0), 2)
+        t_h, t_w = self.assets['time'].shape[:2]
+        start_x_time = self.width - t_w - 20
+        roi_time = frame[18:18+t_h, start_x_time:start_x_time+t_w]
+        roi_time[self.assets['time_mask']] = self.assets['time'][self.assets['time_mask']]
 
-        frame[panel_y1:panel_y2, panel_x1:panel_x2] = roi_panel
+        # 5. Долен панел
+        count = people_counter.get_count()
+        px, py = 15, self.height - 75
+        roi_panel = frame[py:py+60, px:px+380]
+        cv2.addWeighted(self.assets['panel_base'], 0.7, roi_panel, 0.3, 0, roi_panel)
 
-        # "ЗАСЕЧЕНИ ДНЕС: X"
-        title_text = f"ЗАСЕЧЕНИ ДНЕС: {count}"
-        _render_pil_text_on_frame(frame, title_text, (panel_x1 + 12, panel_y1 + 12), FONT_COUNTER_TITLE, (0, 255, 255))
+        if count != self.last_count:
+            count_text = f"ЗАСЕЧЕНИ ДНЕС: {count}"
+            self.assets['count'], self.assets['count_mask'] = self._render_text_asset(
+                count_text, FONT_COUNTER_TITLE, (0, 255, 255), (360, 50)
+            )
+            self.last_count = count
 
-    return frame
+        c_h, c_w = self.assets['count'].shape[:2]
+        roi_count = frame[py+12:py+12+c_h, px+12:px+12+c_w]
+        roi_count[self.assets['count_mask']] = self.assets['count'][self.assets['count_mask']]
+
+        return frame
 
 def main():
     log_system("STARTING CYBER-HUD INTERFACE (HD QUALITY)")
@@ -347,6 +350,9 @@ def main():
     people_counter = DailyPeopleCounter()
     state_manager.set_people_counter(people_counter)
 
+    # Инициализиране на UI мениджъра
+    ui_manager = UIManager(target_w, target_h)
+
     # Стартиране на фоновия работник за лицево разпознаване
     recognition_worker = FaceRecognitionWorker(face_manager, tts_manager, people_counter, state_manager)
     recognition_worker.start()
@@ -364,7 +370,6 @@ def main():
         is_processing = state_manager.is_processing()
 
         # ЪПСКЕЙЛ: Ако камерата дава по-ниска резолюция, качествено ъпскейлваме ПРЕДИ рисуване на текста.
-        # Това гарантира, че текстът се рендерира в Full HD пространство и никога не е пикселизиран.
         if needs_upscale:
             frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
 
@@ -376,8 +381,8 @@ def main():
             recognition_worker.clear_face_data()
             face_data = []
 
-        # Рисуването е оптимизирано и плавно при всеки кадър
-        frame = draw_ui(frame, face_data, is_processing, people_counter)
+        # Рисуването е оптимизирано чрез UI мениджъра
+        frame = ui_manager.draw(frame, face_data, is_processing, people_counter)
         
         # Обновяваме кадъра за уеб стрийминга
         state_manager.update_frame(frame)
