@@ -1,33 +1,22 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
-echo ============================================================
-echo  Starting AI-TV-COMPUTER-VISION...
-echo ============================================================
-
-:: Check if virtual environment exists
-if not exist ".venv\Scripts\python.exe" (
-    echo [!] Error: Virtual environment .venv not found!
-    echo Please create the virtual environment first.
-    pause
-    exit /b 1
+:: Try running with venv python first, fallback to system python if venv doesn't exist
+if exist ".venv\Scripts\python.exe" (
+    .venv\Scripts\python.exe check_dependencies.py
+) else (
+    python check_dependencies.py
 )
 
-:: Run dependency checker
-.venv\Scripts\python.exe check_dependencies.py
-
-:: Check exit code of dependency checker
+:: If dependency check failed or venv is missing, stop here
 if %ERRORLEVEL% neq 0 (
-    echo.
-    echo [!] Dependency check failed.
-    echo Please install the missing packages listed above before running the program.
     echo.
     pause
     exit /b 1
 )
 
 echo.
-echo [+] Dependencies OK. Starting main.py...
+echo [+] Starting main.py...
 echo ============================================================
 echo.
 
@@ -38,3 +27,4 @@ if %ERRORLEVEL% neq 0 (
     echo [!] Program exited with an error or was stopped.
     pause
 )
+

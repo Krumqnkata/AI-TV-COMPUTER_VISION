@@ -56,6 +56,30 @@ def check_dependencies():
     print(" Проверка на системните зависимости за AI-TV-COMPUTER-VISION")
     print("=" * 60)
     
+    # 1. Проверка дали съществува папката .venv
+    venv_python = os.path.join('.venv', 'Scripts', 'python.exe')
+    if not os.path.exists(venv_python):
+        print("\n [!] ГРЕШКА: Виртуалната среда (.venv) не е намерена!")
+        print(" За да стартирате проекта под Windows, изпълнете следните стъпки:\n")
+        print(" Стъпка 1: Изтеглете и инсталирайте Python 3.10, 3.11 или 3.12")
+        print("   -> Свалете от: https://www.python.org/downloads/")
+        print("   -> ВАЖНО: По време на инсталацията отметнете квадратчето \"Add Python to PATH\".\n")
+        print(" Стъпка 2: Създайте виртуалната среда (отворете терминал в тази папка):")
+        print("   python -m venv .venv\n")
+        print(" Стъпка 3: Инсталирайте библиотеките:")
+        print("   .venv\\Scripts\\pip install -r requirements.txt\n")
+        print(" Стъпка 4: Стартирайте проекта отново чрез двукликов файл 'run.bat'.")
+        print("=" * 60)
+        return False
+
+    # 2. Проверка дали текущият скрипт се изпълнява в самата виртуална среда
+    is_venv_active = (sys.prefix != sys.base_prefix) or ('venv' in sys.executable.lower())
+    if not is_venv_active:
+        print("\n [!] ВНИМАНИЕ: Скриптът беше стартиран от глобалния Python, а не от виртуалната среда!")
+        print(" Моля, стартирайте проекта чрез 'run.bat', който автоматично използва .venv.")
+        print("=" * 60)
+        return False
+        
     if not os.path.exists(requirements_file):
         print(f"[!] Грешка: Файлът '{requirements_file}' не беше намерен в текущата директория.")
         sys.exit(1)
