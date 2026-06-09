@@ -1,0 +1,141 @@
+import sys
+import os
+import re
+
+# Настройване на конзолния изход да поддържа UTF-8 (за да се избегнат UnicodeEncodeError в Windows)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
+
+# Опитваме се да заредим нужните стандартни библиотеки за проверка на пакети
+try:
+    from importlib.metadata import version, PackageNotFoundError
+except ImportError:
+    # За по-стари версии на Python (под 3.8)
+    try:
+        import pkg_resources
+        def version(pkg_name):
+            try:
+                return pkg_resources.get_distribution(pkg_name).version
+            except pkg_resources.DistributionNotFound:
+                raise PackageNotFoundError()
+    except ImportError:
+        # Абсолютен fallback
+        version = None
+
+def parse_requirements(file_path):
+    """ Прочита requirements.txt и извлича пакетите и техните версии. """
+    packages = []
+    if not os.path.exists(file_path):
+        return packages
+        
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            # Игнорираме коментари и празни редове
+            if not line or line.startswith('#'):
+                continue
+            
+            # Разделяме името на пакета от версията (поддържа ==, >=, <=, ~=, > , <)
+            match = re.split(r'(==|>=|<=|~=|!=|>)', line)
+            pkg_name = match[0].strip()
+            
+            # Специфично име на пакет (премахваме допълнителни параметри)
+            pkg_name = pkg_name.split('[')[0].strip()
+            
+            if pkg_name:
+                packages.append(pkg_name)
+    return packages
+
+def check_dependencies():
+    requirements_file = 'requirements.txt'
+    
+    print("=" * 60)
+    print(" Проверка на системните зависимости за AI-TV-COMPUTER-VISION")
+    print("=" * 60)
+    
+    if not os.path.exists(requirements_file):
+        print(f"[!] Грешка: Файлът '{requirements_file}' не беше намерен в текущата директория.")
+        sys.exit(1)
+        
+    packages = parse_requirements(requirements_file)
+    missing_packages = []
+    installed_packages = []
+    
+    for pkg in packages:
+        # Някои пакети се инсталират с различно име от това в pip (напр. opencv-python)
+        # Но в метаданните (importlib.metadata) името обикновено съвпада с това в изискванията
+        normalized_name = pkg.lower().replace('_', '-')
+        
+        try:
+            if version:
+                ver = version(normalized_name)
+                # Опит за допълнителна проверка за някои пакети с различни имена в метаданните
+                if not ver and normalized_name == 'opencv-python':
+                    ver = version('opencv-python-headless')
+            else:
+                # В краен случай се опитваме да направим реален import
+                # Това е само ако нямаме метаданни
+                if normalized_name == 'opencv-python':
+                    import cv2
+                elif normalized_name == 'pillow':
+                    import PIL
+                elif normalized_name == 'face-recognition':
+                    import face_recognition
+                elif normalized_name == 'python-dotenv':
+                    import dotenv
+                elif normalized_name == 'google-genai':
+                    import google.genai
+                elif normalized_name == 'piper-tts':
+                    import piper
+                elif normalized_name == 'python-multipart':
+                    import multipart
+                else:
+                    __import__(normalized_name.replace('-', '_'))
+                ver = "Инсталиран"
+                
+            installed_packages.append((pkg, ver))
+        except (PackageNotFoundError, ImportError, ModuleNotFoundError):
+            missing_packages.append(pkg)
+
+    # Принтиране на резултатите
+    if installed_packages:
+        print("\n Налични пакети:")
+        for pkg, ver in installed_packages:
+            print(f"  [+] {pkg:<25} -> Версия: {ver}")
+            
+    if missing_packages:
+        print("\n[!] Липсващи пакети:")
+        for pkg in missing_packages:
+            print(f"  [-] {pkg}")
+            
+        print("\n" + "=" * 60)
+        print(" ЗА ДА ИНСТАЛИРАТЕ ЛИПСВАЩИТЕ ПАКЕТИ, ИЗПЪЛНЕТЕ:")
+        print("=" * 60)
+        # Формираме команда за инсталиране само на липсващите
+        missing_str = " ".join(missing_packages)
+        print(f"pip install {missing_str}")
+        print("\nИли за инсталация на всички наведнъж:")
+        print("pip install -r requirements.txt")
+        print("=" * 60)
+        
+        # Специално предупреждение за face-recognition/dlib
+        if 'face-recognition' in missing_packages:
+            print("\n[Внимание] Пакетът 'face-recognition' изисква 'dlib'.")
+            print("Ако инсталацията се провали, уверете се, че:")
+            print("1. Имате инсталиран CMake: 'pip install cmake'")
+            print("2. Имате инсталирани C++ Build Tools за Visual Studio.")
+            print("Алтернативно, инсталирайте предварително компилиран dlib wheel.")
+            print("=" * 60)
+            
+        return False
+    else:
+        print("\n[OK] Всички зависимости са успешно инсталирани! Проектът е готов за стартиране.")
+        print("=" * 60)
+        return True
+
+if __name__ == "__main__":
+    success = check_dependencies()
+    sys.exit(0 if success else 1)
