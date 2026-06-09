@@ -147,11 +147,23 @@ def check_dependencies():
         
         # Специално предупреждение за face-recognition/dlib
         if 'face-recognition' in missing_packages:
-            print("\n[Внимание] Пакетът 'face-recognition' изисква 'dlib'.")
-            print("Ако инсталацията се провали, уверете се, че:")
-            print("1. Имате инсталиран CMake: 'pip install cmake'")
-            print("2. Имате инсталирани C++ Build Tools за Visual Studio.")
-            print("Алтернативно, инсталирайте предварително компилиран dlib wheel.")
+            print("\n[Внимание] Пакетът 'face-recognition' изисква библиотека на C++ (dlib).")
+            print("За да се инсталира успешно под Windows, следвайте тези стъпки:")
+            print("\n  СТЪПКА А: Инсталиране на C++ компилатор (Visual Studio Build Tools)")
+            print("  1. Свалете инсталатора на Build Tools за Visual Studio от:")
+            print("     https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+            print("  2. Стартирайте сваления файл и изберете работна среда (Workload):")
+            print("     \"Desktop development with C++\" (Разработка на десктоп приложения с C++).")
+            print("  3. Уверете се, че в десния панел са маркирани следните компоненти:")
+            print("     - MSVC v143 - VS 2022 C++ x64/x86 build tools (или подобна версия)")
+            print("     - Windows 10 SDK или Windows 11 SDK")
+            print("  4. Натиснете \"Install\" (Инсталиране) и изчакайте процеса да приключи.")
+            print("\n  СТЪПКА Б: Инсталиране на CMake")
+            print("  Изпълнете командата във виртуалната среда:")
+            print("     pip install cmake")
+            print("\n  СТЪПКА В: Инсталиране на face-recognition")
+            print("  След като завършите горните стъпки, опитайте отново:")
+            print("     pip install face-recognition")
             print("=" * 60)
             
         return False
