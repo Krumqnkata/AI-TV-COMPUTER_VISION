@@ -61,11 +61,8 @@ class FaceRecognitionWorker:
                     self.frame_to_process = None
 
             if frame is not None:
-                # Ресайзваме във фоновата нишка за максимална производителност на основната
-                # 0.4 е баланс между скорост и точност за MediaPipe
-                resize_factor = 0.4
-                small_frame = cv2.resize(frame, (0, 0), fx=resize_factor, fy=resize_factor)
-                face_locations, face_names = self.face_manager.identify_face(small_frame)
+                # Всичко се обработва вътре в face_manager
+                face_locations, face_names = self.face_manager.identify_face(frame, resize_factor=0.4)
 
                 temp_face_data = []
                 current_names = set(face_names)
@@ -81,8 +78,7 @@ class FaceRecognitionWorker:
                     
                     # Само ако е засечено достатъчно пъти, го показваме/обработваме
                     if count >= self.persistence_threshold:
-                        scale = 1.0 / resize_factor
-                        temp_face_data.append(((int(top * scale), int(right * scale), int(bottom * scale), int(left * scale)), name))
+                        temp_face_data.append(((top, right, bottom, left), name))
                         
                         if name != "Unknown":
                             self.people_counter.register(name)

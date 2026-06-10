@@ -186,30 +186,31 @@ class FaceManager:
         except Exception as e:
             print(f"  [ERROR] {image_path}: {e}")
 
-    def identify_face(self, frame):
+    def identify_face(self, frame, resize_factor=0.4):
         height, width = frame.shape[:2]
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # 1. Засичане чрез MediaPipe
-        results = self.mp_face_detection.process(rgb_frame)
+        # 1. Засичане чрез MediaPipe върху умален кадър за бързина
+        small_w = int(width * resize_factor)
+        small_h = int(height * resize_factor)
+        small_frame = cv2.resize(frame, (small_w, small_h))
+        rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+        
+        results = self.mp_face_detection.process(rgb_small)
         
         face_locations = []
         if results.detections:
             for detection in results.detections:
                 bbox = detection.location_data.relative_bounding_box
                 
-                # Конвертиране от нормализирани (0-1) към пикселни координати
-                # MediaPipe: xmin, ymin, width, height
-                # face_recognition изисква: (top, right, bottom, left)
+                # Преобразуваме координатите директно към оригиналния размер (висока резолюция)
                 left = int(bbox.xmin * width)
                 top = int(bbox.ymin * height)
                 right = int((bbox.xmin + bbox.width) * width)
                 bottom = int((bbox.ymin + bbox.height) * height)
                 
-                # Добавяме лек padding, защото MediaPipe е много агресивен в изрязването
-                # face_recognition се справя по-добре с малко повече контекст около лицето
-                pad_w = int(bbox.width * width * 0.1)
-                pad_h = int(bbox.height * height * 0.1)
+                # Добавяме лек padding (20%) за по-добро разпознаване от dlib
+                pad_w = int((right - left) * 0.20)
+                pad_h = int((bottom - top) * 0.20)
                 
                 left = max(0, left - pad_w)
                 top = max(0, top - pad_h)
@@ -222,10 +223,21 @@ class FaceManager:
             return [], []
 
         # 2. Разпознаване чрез face_recognition (използвайки локациите от MediaPipe)
-        # Прилагаме CLAHE върху целия кадър за по-добро извличане на черти
-        enhanced_frame = self._apply_clahe(frame)
-        enhanced_rgb = cv2.cvtColor(enhanced_frame, cv2.COLOR_BGR2RGB)
+        # Създаваме копие на оригиналния кадър в RGB формат
+        enhanced_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
+        for (top, right, bottom, left) in face_locations:
+            # Изрязваме лицето от оригиналния HD кадър
+            face_crop = frame[top:bottom, left:right]
+            if face_crop.size == 0:
+                continue
+                
+            # Прилагаме CLAHE само върху лицето (много по-бързо)
+            enhanced_crop = self._apply_clahe(face_crop)
+            # Вграждаме подобреното лице обратно в RGB кадъра
+            enhanced_rgb[top:bottom, left:right] = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
+        
+        # Извличаме характеристиките от целия HD кадър с подобрените лица
         face_encodings = face_recognition.face_encodings(enhanced_rgb, face_locations)
 
         face_names = []
