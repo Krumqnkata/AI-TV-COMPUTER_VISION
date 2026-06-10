@@ -9,11 +9,19 @@ if exist ".venv\Scripts\python.exe" (
 )
 
 :: If dependency check failed or venv is missing, stop here
-if %ERRORLEVEL% neq 0 (
-    echo.
-    pause
-    exit /b 1
-)
+if %ERRORLEVEL% equ 0 goto :dependencies_ok
+
+echo.
+echo ============================================================
+echo [!] Ako vi lipsva C++ Build Tools (neobhodimi za face-recognition/dlib),
+echo     mojete da gi svalite ot:
+echo     https://visualstudio.microsoft.com/visual-cpp-build-tools/
+echo ============================================================
+echo.
+pause
+exit /b 1
+
+:dependencies_ok
 
 echo.
 echo [+] Starting main.py...
@@ -27,4 +35,5 @@ if %ERRORLEVEL% neq 0 (
     echo [!] Program exited with an error or was stopped.
     pause
 )
+
 
