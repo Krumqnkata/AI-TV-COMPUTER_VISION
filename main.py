@@ -275,6 +275,23 @@ class UIManager:
         roi_time = frame[18:18+t_h, start_x_time:start_x_time+t_w]
         roi_time[self.assets['time_mask']] = self.assets['time'][self.assets['time_mask']]
 
+        # 4.5. Статус на системата (ACTIVE / PAUSED)
+        if is_processing != self.last_status:
+            status_text = "STATUS: ACTIVE" if is_processing else "STATUS: PAUSED"
+            status_color = (0, 255, 0) if is_processing else (255, 0, 0)
+            try:
+                sw = int(FONT_MAIN.getlength(status_text))
+            except: sw = 300
+            self.assets['status'], self.assets['status_mask'] = self._render_text_asset(
+                status_text, FONT_MAIN, status_color, (sw + 20, 50)
+            )
+            self.last_status = is_processing
+
+        s_h, s_w = self.assets['status'].shape[:2]
+        start_x_status = start_x_time - s_w - 60
+        roi_status = frame[18:18+s_h, start_x_status:start_x_status+s_w]
+        roi_status[self.assets['status_mask']] = self.assets['status'][self.assets['status_mask']]
+
         # 5. Долен панел
         count = people_counter.get_count()
         px, py = 15, self.height - 75

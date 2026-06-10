@@ -1,5 +1,6 @@
 @echo off
 setlocal
+color b
 
 :: Try running with venv python first, fallback to system python if venv doesn't exist
 if exist ".venv\Scripts\python.exe" (
