@@ -232,13 +232,20 @@ class FaceManager:
             if face_crop.size == 0:
                 continue
                 
+            # Ограничаваме разделителната способност на лицето за бързина и стабилност на dlib
+            h_c, w_c = face_crop.shape[:2]
+            target_w = 160
+            if w_c > target_w:
+                scale = target_w / w_c
+                face_crop = cv2.resize(face_crop, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+                
             # Прилагаме CLAHE само върху лицето (много по-бързо)
             enhanced_crop = self._apply_clahe(face_crop)
             enhanced_rgb_crop = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
             
-            # Извличаме характеристиките само за това изрязано лице
+            # Извличаме характеристиките само за това изрязано лице чрез по-бързия 5-точков модел
             h_crop, w_crop = enhanced_rgb_crop.shape[:2]
-            encodings = face_recognition.face_encodings(enhanced_rgb_crop, [(0, w_crop, h_crop, 0)])
+            encodings = face_recognition.face_encodings(enhanced_rgb_crop, [(0, w_crop, h_crop, 0)], model="small")
             
             if encodings:
                 face_encoding = encodings[0]
