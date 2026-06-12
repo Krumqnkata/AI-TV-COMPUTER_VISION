@@ -223,33 +223,34 @@ class FaceManager:
             return [], []
 
         # 2. Разпознаване чрез face_recognition (използвайки локациите от MediaPipe)
-        # Създаваме копие на оригиналния кадър в RGB формат
-        enhanced_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        face_names = []
+        valid_face_locations = []
         
         for (top, right, bottom, left) in face_locations:
-            # Изрязваме лицето от оригиналния HD кадър
+            # Изрязваме лицето от оригиналния кадър
             face_crop = frame[top:bottom, left:right]
             if face_crop.size == 0:
                 continue
                 
             # Прилагаме CLAHE само върху лицето (много по-бързо)
             enhanced_crop = self._apply_clahe(face_crop)
-            # Вграждаме подобреното лице обратно в RGB кадъра
-            enhanced_rgb[top:bottom, left:right] = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
+            enhanced_rgb_crop = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
+            
+            # Извличаме характеристиките само за това изрязано лице
+            h_crop, w_crop = enhanced_rgb_crop.shape[:2]
+            encodings = face_recognition.face_encodings(enhanced_rgb_crop, [(0, w_crop, h_crop, 0)])
+            
+            if encodings:
+                face_encoding = encodings[0]
+                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
+                name = self._get_mapped_name("Unknown")
+                if self.known_face_encodings:
+                    face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
+                    if len(face_distances) > 0:
+                        best_match_index = np.argmin(face_distances)
+                        if matches[best_match_index]:
+                            name = self.known_face_names[best_match_index]
+                face_names.append(name)
+                valid_face_locations.append((top, right, bottom, left))
         
-        # Извличаме характеристиките от целия HD кадър с подобрените лица
-        face_encodings = face_recognition.face_encodings(enhanced_rgb, face_locations)
-
-        face_names = []
-        for face_encoding in face_encodings:
-            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
-            name = self._get_mapped_name("Unknown")
-            if self.known_face_encodings:
-                face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-                if len(face_distances) > 0:
-                    best_match_index = np.argmin(face_distances)
-                    if matches[best_match_index]:
-                        name = self.known_face_names[best_match_index]
-            face_names.append(name)
-        
-        return face_locations, face_names
+        return valid_face_locations, face_names

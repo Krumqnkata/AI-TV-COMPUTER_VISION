@@ -42,13 +42,19 @@ manager = ConnectionManager()
 
 def get_video_stream():
     """ Генератор за M-JPEG стрийминг """
-    while True:
+    if state_manager:
+        state_manager.increment_active_streams()
+    try:
+        while True:
+            if state_manager:
+                frame = state_manager.get_latest_frame()
+                if frame:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.07) # Ограничаваме до ~14 FPS за пестене на трафик
+    finally:
         if state_manager:
-            frame = state_manager.get_latest_frame()
-            if frame:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.07) # Ограничаваме до ~14 FPS за пестене на трафик
+            state_manager.decrement_active_streams()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):

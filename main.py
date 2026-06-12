@@ -384,11 +384,11 @@ def main():
 
         # ЪПСКЕЙЛ: Ако камерата дава по-ниска резолюция, качествено ъпскейлваме ПРЕДИ рисуване на текста.
         if needs_upscale:
-            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+            frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
 
         if is_processing:
             if frame_count % process_every_n_frames == 0:
-                recognition_worker.submit_frame(frame)
+                recognition_worker.submit_frame(frame.copy())
             face_data = recognition_worker.get_face_data()
         else:
             recognition_worker.clear_face_data()
