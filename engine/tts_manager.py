@@ -3,6 +3,7 @@ import json
 import random
 import time
 import wave
+import hashlib
 from threading import Thread
 from queue import Queue
 import pygame
@@ -234,34 +235,30 @@ class TTSManager:
 
     def _generate_and_play(self, text):
         try:
-            # Piper генерира WAV файл.
-            filename = os.path.join(self.temp_dir, f"joke_{hash(text)}.wav") 
+            # Превръщаме текста в MD5 хеш за персистентен и надежден кеш
+            text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+            wav_filename = os.path.join(self.temp_dir, f"joke_{text_hash}.wav")
+            mp3_filename = os.path.join(self.temp_dir, f"joke_{text_hash}.mp3")
             
-            if not os.path.exists(filename):
+            filename = None
+            if os.path.exists(wav_filename):
+                filename = wav_filename
+            elif os.path.exists(mp3_filename):
+                filename = mp3_filename
+            
+            if not filename:
                 if self.piper_enabled:
                     log_system(f"Generating new audio with Piper TTS for: {text[:30]}...")
                     try:
                         # Piper генерира директно във файл чрез wave модула
-                        with wave.open(filename, 'wb') as w:
+                        with wave.open(wav_filename, 'wb') as w:
                             self.piper_model.synthesize_wav(text, w)
+                        filename = wav_filename
                     except Exception as e:
                         log_system(f"Piper TTS generation failed: {e}. Falling back to gTTS.", "error")
-                        
-                        # Фолбек към gTTS, ако Piper се провали
-                        try:
-                            import socket
-                            socket.create_connection(("8.8.8.8", 53), timeout=2)
-                            
-                            log_system(f"Generating new audio with gTTS for: {text[:30]}...")
-                            from gtts import gTTS
-                            tts = gTTS(text=text, lang='bg')
-                            tts.save(filename.replace(".wav", ".mp3"))
-                            filename = filename.replace(".wav", ".mp3")
-                        except OSError:
-                            log_system("No internet! Cannot generate new joke with gTTS.", "error")
-                            return
-                else: 
-                    # Ако Piper не е enabled, директно пробваме gTTS
+                
+                # Ако Piper не е активиран или генерирането се е провалило
+                if not filename:
                     try:
                         import socket
                         socket.create_connection(("8.8.8.8", 53), timeout=2)
@@ -269,8 +266,8 @@ class TTSManager:
                         log_system(f"Generating new audio with gTTS for: {text[:30]}...")
                         from gtts import gTTS
                         tts = gTTS(text=text, lang='bg')
-                        tts.save(filename.replace(".wav", ".mp3"))
-                        filename = filename.replace(".wav", ".mp3")
+                        tts.save(mp3_filename)
+                        filename = mp3_filename
                     except OSError:
                         log_system("No internet! Cannot generate new joke with gTTS.", "error")
                         return

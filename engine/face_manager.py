@@ -186,13 +186,13 @@ class FaceManager:
         except Exception as e:
             print(f"  [ERROR] {image_path}: {e}")
 
-    def identify_face(self, frame, resize_factor=0.4):
+    def identify_face(self, frame, resize_factor=0.25):
         height, width = frame.shape[:2]
         
         # 1. Засичане чрез MediaPipe върху умален кадър за бързина
         small_w = int(width * resize_factor)
         small_h = int(height * resize_factor)
-        small_frame = cv2.resize(frame, (small_w, small_h))
+        small_frame = cv2.resize(frame, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
         rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         
         results = self.mp_face_detection.process(rgb_small)

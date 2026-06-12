@@ -62,7 +62,7 @@ class FaceRecognitionWorker:
 
             if frame is not None:
                 # Всичко се обработва вътре в face_manager
-                face_locations, face_names = self.face_manager.identify_face(frame, resize_factor=0.4)
+                face_locations, face_names = self.face_manager.identify_face(frame, resize_factor=0.25)
 
                 temp_face_data = []
                 current_names = set(face_names)
