@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import time
+import math
 import threading
 import os
 import warnings
@@ -206,6 +207,16 @@ class UIManager:
         self.last_time_str = None
         self.last_count = -1
         
+        # Данни за визуализация "Невронна мрежа"
+        self.neurons = []
+        for _ in range(8):
+            self.neurons.append({
+                "x": np.random.randint(0, 100), 
+                "y": np.random.randint(0, 100),
+                "vx": np.random.uniform(-1, 1),
+                "vy": np.random.uniform(-1, 1)
+            })
+        
         # Система за известия
         self.notification_text = ""
         self.notification_expiry = 0
@@ -383,7 +394,48 @@ class UIManager:
                 roi_label = frame[ly:ly+lh, lx:lx+lw]
                 roi_label[label_mask] = label_img[label_mask]
 
+        # 8. Пулсиращ индикатор за "мислене"
+        if is_processing:
+            self._draw_thinking_indicator(frame, w, h)
+
         return frame
+
+    def _draw_thinking_indicator(self, frame, w, h):
+        """ Рисува динамична "кибер-невронна мрежа" в долния десен ъгъл при обработка """
+        # Параметри на визуализацията (увеличени)
+        center_x, center_y = w - 150, h - 150
+        neuron_radius = 4
+        connection_threshold = 100
+        area_size = 150 # Размер на зоната на движение
+        
+        # Обновяваме позициите
+        for n in self.neurons:
+            n["x"] += n["vx"]
+            n["y"] += n["vy"]
+            
+            # Отскачане от границите на зоната
+            if n["x"] < 0 or n["x"] > area_size: n["vx"] *= -1
+            if n["y"] < 0 or n["y"] > area_size: n["vy"] *= -1
+        
+        # Рисуваме връзките (Сини/Циано: (255, 255, 0))
+        for i in range(len(self.neurons)):
+            for j in range(i + 1, len(self.neurons)):
+                n1 = self.neurons[i]
+                n2 = self.neurons[j]
+                
+                # Позиции в рамките на кадъра
+                p1 = (int(center_x + n1["x"] - area_size/2), int(center_y + n1["y"] - area_size/2))
+                p2 = (int(center_x + n2["x"] - area_size/2), int(center_y + n2["y"] - area_size/2))
+                
+                dist = math.sqrt((n1["x"] - n2["x"])**2 + (n1["y"] - n2["y"])**2)
+                
+                if dist < connection_threshold:
+                    cv2.line(frame, p1, p2, (255, 255, 0), 1)
+        
+        # Рисуваме невроните (точките) - Зелени: (0, 255, 0)
+        for n in self.neurons:
+            pos = (int(center_x + n["x"] - area_size/2), int(center_y + n["y"] - area_size/2))
+            cv2.circle(frame, pos, neuron_radius, (0, 255, 0), -1)
 
 def main():
     log_system("STARTING CYBER-HUD INTERFACE (HD QUALITY)")
