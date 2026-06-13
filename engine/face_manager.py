@@ -6,6 +6,7 @@ import pickle
 import json
 import hashlib
 import mediapipe as mp
+from concurrent.futures import ThreadPoolExecutor
 from utils.config import Config
 
 class FaceManager:
@@ -23,6 +24,9 @@ class FaceManager:
         )
         # CLAHE за подобряване на контраста
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        
+        # ThreadPool за паралелно разпознаване
+        self.executor = ThreadPoolExecutor(max_workers=4)
 
     def _apply_clahe(self, image):
         """Прилага CLAHE върху L-канала в LAB цветовото пространство."""
@@ -186,64 +190,19 @@ class FaceManager:
         except Exception as e:
             print(f"  [ERROR] {image_path}: {e}")
 
-    def identify_face(self, frame, resize_factor=0.25):
-        height, width = frame.shape[:2]
-        
-        # 1. Засичане чрез MediaPipe върху умален кадър за бързина
-        small_w = int(width * resize_factor)
-        small_h = int(height * resize_factor)
-        small_frame = cv2.resize(frame, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
-        rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-        
-        results = self.mp_face_detection.process(rgb_small)
-        
-        face_locations = []
-        if results.detections:
-            for detection in results.detections:
-                bbox = detection.location_data.relative_bounding_box
-                
-                # Преобразуваме координатите директно към оригиналния размер (висока резолюция)
-                left = int(bbox.xmin * width)
-                top = int(bbox.ymin * height)
-                right = int((bbox.xmin + bbox.width) * width)
-                bottom = int((bbox.ymin + bbox.height) * height)
-                
-                # Добавяме лек padding (20%) за по-добро разпознаване от dlib
-                pad_w = int((right - left) * 0.20)
-                pad_h = int((bottom - top) * 0.20)
-                
-                left = max(0, left - pad_w)
-                top = max(0, top - pad_h)
-                right = min(width, right + pad_w)
-                bottom = min(height, bottom + pad_h)
-                
-                face_locations.append((top, right, bottom, left))
-
-        if not face_locations:
-            return [], []
-
-        # 2. Разпознаване чрез face_recognition (използвайки локациите от MediaPipe)
-        face_names = []
-        valid_face_locations = []
-        
-        for (top, right, bottom, left) in face_locations:
-            # Изрязваме лицето от оригиналния кадър
-            face_crop = frame[top:bottom, left:right]
-            if face_crop.size == 0:
-                continue
-                
-            # Ограничаваме разделителната способност на лицето за бързина и стабилност на dlib
+    def _recognize_worker(self, face_crop):
+        """ Обработва единично изрязано лице (вика се в нишка) """
+        try:
+            # Ограничаваме разделителната способност на лицето за бързина
             h_c, w_c = face_crop.shape[:2]
             target_w = 160
             if w_c > target_w:
                 scale = target_w / w_c
                 face_crop = cv2.resize(face_crop, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
                 
-            # Прилагаме CLAHE само върху лицето (много по-бързо)
             enhanced_crop = self._apply_clahe(face_crop)
             enhanced_rgb_crop = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
             
-            # Извличаме характеристиките само за това изрязано лице чрез по-бързия 5-точков модел
             h_crop, w_crop = enhanced_rgb_crop.shape[:2]
             encodings = face_recognition.face_encodings(enhanced_rgb_crop, [(0, w_crop, h_crop, 0)], model="small")
             
@@ -257,7 +216,51 @@ class FaceManager:
                         best_match_index = np.argmin(face_distances)
                         if matches[best_match_index]:
                             name = self.known_face_names[best_match_index]
-                face_names.append(name)
-                valid_face_locations.append((top, right, bottom, left))
+                return name
+        except Exception:
+            pass
+        return self._get_mapped_name("Unknown")
+
+    def identify_face(self, frame, resize_factor=0.25):
+        height, width = frame.shape[:2]
         
-        return valid_face_locations, face_names
+        # 1. Засичане чрез MediaPipe върху умален кадър за бързина
+        small_w = int(width * resize_factor)
+        small_h = int(height * resize_factor)
+        small_frame = cv2.resize(frame, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
+        rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+        
+        results = self.mp_face_detection.process(rgb_small)
+        
+        face_locations = []
+        crops = []
+        if results.detections:
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+                
+                left = int(bbox.xmin * width)
+                top = int(bbox.ymin * height)
+                right = int((bbox.xmin + bbox.width) * width)
+                bottom = int((bbox.ymin + bbox.height) * height)
+                
+                # Padding
+                pad_w = int((right - left) * 0.20)
+                pad_h = int((bottom - top) * 0.20)
+                
+                left = max(0, left - pad_w)
+                top = max(0, top - pad_h)
+                right = min(width, right + pad_w)
+                bottom = min(height, bottom + pad_h)
+                
+                face_crop = frame[top:bottom, left:right]
+                if face_crop.size > 0:
+                    face_locations.append((top, right, bottom, left))
+                    crops.append(face_crop)
+
+        if not crops:
+            return [], []
+
+        # 2. Паралелно разпознаване чрез ThreadPoolExecutor
+        face_names = list(self.executor.map(self._recognize_worker, crops))
+        
+        return face_locations, face_names
