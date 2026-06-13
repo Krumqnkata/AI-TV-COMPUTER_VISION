@@ -2,8 +2,13 @@ import cv2
 import numpy as np
 import time
 import threading
+import warnings
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
+
+# Заглушаване на досадни предупреждения от библиотеки на Google/MediaPipe
+warnings.filterwarnings("ignore", category=UserWarning, module="google.protobuf.symbol_database")
+
 from utils.config import Config
 from engine.face_manager import FaceManager
 from engine.tts_manager import TTSManager
@@ -11,6 +16,8 @@ from engine.people_counter import DailyPeopleCounter
 from utils.logger import log_system
 from engine.state_manager import StateManager
 from web.server import start_web_server
+
+# ... (rest of the initial constants and FaceRecognitionWorker remain the same)
 
 # Цветове (BGR формат за OpenCV)
 COLOR_CYAN = (255, 255, 0)
@@ -349,11 +356,34 @@ def main():
     process_every_n_frames = Config.PROCESS_EVERY_N_FRAMES
     
     state_manager.set_status("Running")
+    last_frame_time = time.time()
+    reconnect_cooldown = 0
 
     while state_manager.should_continue():
         ret, frame = video_capture.read()
-        if not ret: break
+        
+        if not ret:
+            current_time = time.time()
+            if current_time - last_frame_time > 5.0 and current_time > reconnect_cooldown:
+                log_system("Camera stream frozen. Attempting to reconnect...", "error")
+                video_capture.release()
+                time.sleep(2)
+                video_capture = cv2.VideoCapture(source)
+                if not is_ip_camera:
+                    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, Config.TARGET_WIDTH)
+                    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, Config.TARGET_HEIGHT)
+                
+                reconnect_cooldown = time.time() + 5.0
+                if video_capture.isOpened():
+                    log_system("Reconnected successfully.")
+                else:
+                    log_system("Reconnect failed. Will try again.", "error")
+            
+            time.sleep(0.1)
+            continue
 
+        # Успешно прочетен кадър - обновяваме таймера
+        last_frame_time = time.time()
         is_processing = state_manager.is_processing()
 
         # НЕ ЪПСКЕЙЛВАМЕ ТУК - UIManager ще го направи само при рисуване на HUD-а

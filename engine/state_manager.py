@@ -1,6 +1,7 @@
 import threading
 import cv2
 import time
+import queue
 
 class StateManager:
     """ 
@@ -19,6 +20,11 @@ class StateManager:
         self._active_streams = 0
         self._last_frame_time = 0
         
+        # Опашка за събития (WebSocket известия)
+        self._event_queue = queue.Queue()
+        self._event_thread = threading.Thread(target=self._event_worker, daemon=True)
+        self._event_thread.start()
+
         # Оптимизация на уеб стрийминга
         self._new_frame_event = threading.Event()
         self._encoding_thread = threading.Thread(target=self._encoding_worker, daemon=True)
@@ -29,11 +35,23 @@ class StateManager:
         with self._lock:
             self._on_event_callback = callback
 
+    def _event_worker(self):
+        """ Единствена нишка за обработка на всички известия """
+        while self._is_running:
+            try:
+                event_type, data = self._event_queue.get(timeout=1.0)
+                if self._on_event_callback:
+                    try:
+                        self._on_event_callback(event_type, data)
+                    except Exception:
+                        pass
+                self._event_queue.task_done()
+            except queue.Empty:
+                continue
+
     def _notify(self, event_type: str, data: dict):
-        """ Помощен метод за изпращане на известия """
-        if self._on_event_callback:
-            # Извикваме калбека в отделна нишка, за да не бавим обработката
-            threading.Thread(target=self._on_event_callback, args=(event_type, data), daemon=True).start()
+        """ Помощен метод за добавяне на известия в опашката """
+        self._event_queue.put((event_type, data))
 
     def increment_active_streams(self):
         """ Увеличава броя на активните уеб стриймове """
