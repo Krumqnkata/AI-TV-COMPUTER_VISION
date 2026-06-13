@@ -224,9 +224,9 @@ class FaceManager:
     def _recognize_worker(self, face_crop):
         """ Обработва единично изрязано лице (вика се в нишка) """
         try:
-            # Ограничаваме разделителната способност на лицето за бързина
+            # По-висока разделителна способност на лицето за по-добра точност
             h_c, w_c = face_crop.shape[:2]
-            target_w = 160
+            target_w = 240
             if w_c > target_w:
                 scale = target_w / w_c
                 face_crop = cv2.resize(face_crop, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
@@ -235,12 +235,20 @@ class FaceManager:
             enhanced_rgb_crop = cv2.cvtColor(enhanced_crop, cv2.COLOR_BGR2RGB)
             
             h_crop, w_crop = enhanced_rgb_crop.shape[:2]
-            encodings = face_recognition.face_encodings(enhanced_rgb_crop, [(0, w_crop, h_crop, 0)], model="small")
+            # Използваме модела от конфигурацията (по подразбиране "large" за висока точност)
+            encodings = face_recognition.face_encodings(
+                enhanced_rgb_crop, 
+                [(0, w_crop, h_crop, 0)], 
+                model=Config.FACE_ENCODING_MODEL
+            )
             
             if encodings:
                 face_encoding = encodings[0]
-                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
+                # Използваме по-строг толеранс от конфигурацията
+                tolerance = Config.FACE_RECOGNITION_TOLERANCE
+                matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=tolerance)
                 name = self._get_mapped_name("Unknown")
+                
                 if self.known_face_encodings:
                     face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
                     if len(face_distances) > 0:

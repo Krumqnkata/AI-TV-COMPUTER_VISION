@@ -131,10 +131,11 @@ class StateManager:
             self._is_processing = state
         self._notify("status_change", {"is_processing": state})
 
-    def on_face_recognized(self, name: str):
+    def on_face_recognized(self, name: str, image_filename: str = None):
         """ Вика се при успешно разпознаване на лице """
         self._notify("recognition", {
             "name": name, 
+            "image_url": f"/history/{image_filename}" if image_filename else None,
             "total": self._people_counter.get_count() if self._people_counter else 0
         })
 

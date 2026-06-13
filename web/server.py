@@ -11,7 +11,13 @@ import time
 from typing import List
 
 app = FastAPI(title="School AI Control Panel")
+
+# Уверяваме се, че директориите за кеш съществуват преди да ги монтираме
+os.makedirs("data/audio_cache", exist_ok=True)
+os.makedirs("data/history_cache", exist_ok=True)
+
 app.mount("/audio", StaticFiles(directory="data/audio_cache"), name="audio")
+app.mount("/history", StaticFiles(directory="data/history_cache"), name="history")
 templates = Jinja2Templates(directory="web/templates")
 
 # Глобална референция към StateManager и FaceManager
@@ -76,6 +82,27 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+@app.get("/api/history")
+async def get_visual_history():
+    """ Връща списък с последните 40 снимки от историята """
+    history_dir = "data/history_cache"
+    if not os.path.exists(history_dir):
+        return []
+    
+    files = []
+    for f in os.listdir(history_dir):
+        if f.endswith(".jpg"):
+            path = os.path.join(history_dir, f)
+            files.append({
+                "filename": f,
+                "url": f"/history/{f}",
+                "time": os.path.getmtime(path)
+            })
+    
+    # Сортираме по време (най-новите първо)
+    files.sort(key=lambda x: x["time"], reverse=True)
+    return files[:40]
 
 @app.get("/video_feed")
 async def video_feed():

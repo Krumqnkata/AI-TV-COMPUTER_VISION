@@ -25,6 +25,10 @@ class Config:
     PROCESS_EVERY_N_FRAMES = int(os.getenv("PROCESS_EVERY_N_FRAMES", 10))
     FONT_PATH = os.getenv("FONT_PATH", "ARIAL.TTF")
     
+    # Настройки за прецизност на разпознаването
+    FACE_RECOGNITION_TOLERANCE = float(os.getenv("FACE_RECOGNITION_TOLERANCE", 0.57))
+    FACE_ENCODING_MODEL = os.getenv("FACE_ENCODING_MODEL", "large")
+    
     AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.95))
     AI_RATE_LIMIT_PER_MINUTE = int(os.getenv("AI_RATE_LIMIT_PER_MINUTE", 4))
     AI_CACHE_REUSE_PROB = float(os.getenv("AI_CACHE_REUSE_PROB", 0.60))

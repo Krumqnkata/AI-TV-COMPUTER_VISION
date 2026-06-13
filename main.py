@@ -2,7 +2,9 @@ import cv2
 import numpy as np
 import time
 import threading
+import os
 import warnings
+import hashlib
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
@@ -50,15 +52,62 @@ class FaceRecognitionWorker:
         self.state_manager = state_manager
         self.frame_to_process = None
         self.face_data = []
-        self.face_history = {} # {name: count}
+        self.face_history = {} # {name: {"count": count, "grace": grace_frames}}
         self.persistence_threshold = 3 # Минимум засичания за потвърждение
+        self.grace_limit = 20 # Колко кадъра да "пазим" името, ако изчезне
         self.lock = threading.Lock()
         self.new_frame_event = threading.Event()
         self.running = True
+        
+        # Визуална история
+        self.history_dir = "data/history_cache"
+        self.max_history = 40
+        if not os.path.exists(self.history_dir):
+            os.makedirs(self.history_dir)
+
         self.thread = threading.Thread(target=self._worker_loop, daemon=True)
 
     def start(self):
         self.thread.start()
+
+    def _save_to_history(self, frame, bbox, name):
+        """ Изрязва и запазва малка снимка на лицето в историята """
+        try:
+            top, right, bottom, left = bbox
+            # Изрязваме лицето с малък марж
+            h, w = frame.shape[:2]
+            face_crop = frame[max(0, top-20):min(h, bottom+20), max(0, left-20):min(w, right+20)]
+            
+            if face_crop.size > 0:
+                # Мащабираме до стандартен размер
+                face_thumb = cv2.resize(face_crop, (150, 150), interpolation=cv2.INTER_AREA)
+                
+                # Генерираме име на файла (timestamp + hash_of_name.jpg)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                filename = f"{timestamp}_{name_hash}.jpg"
+                filepath = os.path.join(self.history_dir, filename)
+                
+                cv2.imwrite(filepath, face_thumb)
+                self._purge_old_history()
+                return filename
+        except Exception as e:
+            log_system(f"Failed to save history image: {e}", "error")
+        return None
+
+    def _purge_old_history(self):
+        """ Изтрива най-старите файлове, ако са над лимита (FIFO) """
+        try:
+            files = [os.path.join(self.history_dir, f) for f in os.listdir(self.history_dir)]
+            # Сортираме по време на промяна (най-старите първо)
+            files.sort(key=os.path.getmtime)
+            
+            while len(files) > self.max_history:
+                oldest_file = files.pop(0)
+                if os.path.exists(oldest_file):
+                    os.remove(oldest_file)
+        except Exception:
+            pass
 
     def _worker_loop(self):
         while self.running:
@@ -78,25 +127,53 @@ class FaceRecognitionWorker:
                 face_locations, face_names, face_moods = self.face_manager.identify_face(frame, resize_factor=0.25)
 
                 temp_face_data = []
+                current_names_in_frame = set(face_names)
                 
+                # 1. Обновяваме историята за всички имена
+                # Първо намаляваме гратисния период на тези, които ги няма в текущия кадър
+                for name in list(self.face_history.keys()):
+                    if name not in current_names_in_frame:
+                        self.face_history[name]["grace"] -= 1
+                        if self.face_history[name]["grace"] <= 0:
+                            del self.face_history[name]
+
+                # 2. Обработваме имената от текущия кадър
                 for (top, right, bottom, left), name, mood in zip(face_locations, face_names, face_moods):
-                    # Броим засичанията за всяко име
-                    count = self.face_history.get(name, 0) + 1
-                    self.face_history[name] = count
+                    # СТАБИЛИЗАЦИЯ: Ако сме разпознали "Unknown", но наскоро сме виждали някой познат
+                    # и той все още е в активен "grace" период, не бързаме да го сменяме с "Unknown"
+                    is_unknown = (name == self.face_manager._get_mapped_name("Unknown"))
+                    if is_unknown:
+                        # Търсим дали има някой познат, който все още се пази в историята и е стабилен
+                        known_candidates = [n for n, d in self.face_history.items() if n != name and d["grace"] > (self.grace_limit // 2)]
+                        if known_candidates:
+                            name = known_candidates[0] # "Прилепваме" към познатия човек
+                            is_unknown = False
+
+                    if name not in self.face_history:
+                        self.face_history[name] = {"count": 0, "grace": self.grace_limit}
+                    
+                    data = self.face_history[name]
+                    data["count"] += 1
+                    data["grace"] = self.grace_limit # Рестартираме гратисния период, щом го виждаме
                     
                     # Само ако е засечено достатъчно пъти, го показваме/обработваме
-                    if count >= self.persistence_threshold:
+                    if data["count"] >= self.persistence_threshold:
                         temp_face_data.append(((top, right, bottom, left), name))
                         
-                        if name != "Unknown":
-                            self.people_counter.register(name)
-                            self.tts_manager.speak_joke(name, mood=mood)
-                            if self.state_manager:
-                                self.state_manager.on_face_recognized(name)
-                
-                # Почистване на историята от имена, които вече ги няма в текущия кадър
-                current_names = set(face_names)
-                self.face_history = {n: c for n, c in self.face_history.items() if n in current_names}
+                        # Ако засичаме това име ЗА ПЪРВИ ПЪТ (или след рестарт)
+                        if data["count"] == self.persistence_threshold:
+                            # Запазваме в историята
+                            img_file = self._save_to_history(frame, (top, right, bottom, left), name)
+                            
+                            # Регистрираме и поздравяваме
+                            if name != "Unknown":
+                                self.people_counter.register(name)
+                                self.tts_manager.speak_joke(name, mood=mood)
+                                if self.state_manager:
+                                    self.state_manager.on_face_recognized(name, image_filename=img_file)
+                            elif img_file:
+                                if self.state_manager:
+                                    self.state_manager.on_face_recognized("Unknown", image_filename=img_file)
 
                 # Обновяваме брояча за непознати
                 unknown_count = face_names.count("Unknown")

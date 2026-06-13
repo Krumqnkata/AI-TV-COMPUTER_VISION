@@ -159,24 +159,6 @@ class TTSManager:
             # Цялото мислене и генериране ще се случи във фоновата нишка.
             self.speech_queue.put((name, mood))
 
-            self.last_seen[name] = current_time
-            
-            # Логване на разпознаването
-            log_system(f"Recognized: {name}")
-            log_recognition(name)
-
-            # Изчистване на опашката от стари разпознавания, ако има натрупване
-            while self.speech_queue.qsize() > 1:
-                try:
-                    self.speech_queue.get_nowait()
-                    self.speech_queue.task_done()
-                except Exception:
-                    pass
-
-            # Добавяме името в опашката. 
-            # Цялото мислене и генериране ще се случи във фоновата нишка.
-            self.speech_queue.put(name)
-
     def _load_ai_jokes_cache(self):
         try:
             if os.path.exists(self.ai_cache_file):

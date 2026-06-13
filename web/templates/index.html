@@ -187,7 +187,13 @@
                     break;
                 case 'recognition':
                     document.getElementById('total-count').innerText = data.total;
-                    logActivity('RECOGNITION', `Detected: ${data.name}`, 'text-green-400');
+                    let nameDisplay = `Detected: ${data.name}`;
+                    if (data.image_url) {
+                        nameDisplay = `<a href="${data.image_url}" target="_blank" class="text-cyan-400 underline hover:text-cyan-300">Detected: ${data.name} (View Photo)</a>`;
+                        logActivity('RECOGNITION', nameDisplay, 'text-green-400', true);
+                    } else {
+                        logActivity('RECOGNITION', nameDisplay, 'text-green-400');
+                    }
                     break;
                 case 'speech':
                     logActivity('AUDIO', 'Playing voice message...', 'text-pink-400');
@@ -215,11 +221,15 @@
             }
         }
 
-        function logActivity(source, message, colorClass) {
+        function logActivity(source, message, colorClass, isHtml = false) {
             const log = document.getElementById('activity-log');
             const time = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
-            entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
+            if (isHtml) {
+                entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
+            } else {
+                entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
+            }
             log.prepend(entry);
         }
 
