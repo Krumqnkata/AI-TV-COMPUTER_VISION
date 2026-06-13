@@ -55,7 +55,7 @@ class FaceManager:
             if eye_dist == 0: return "serious"
             smile_ratio = mouth_width / eye_dist
             
-            return "smiling" if smile_ratio > 0.85 else "serious"
+            return "smiling" if smile_ratio > 0.65 else "serious"
         except Exception:
             return "serious"
 

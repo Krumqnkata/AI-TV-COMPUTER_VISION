@@ -53,15 +53,15 @@ class FaceRecognitionWorker:
         self.frame_to_process = None
         self.face_data = []
         self.face_history = {} # {name: {"count": count, "grace": grace_frames}}
-        self.persistence_threshold = 3 # Минимум засичания за потвърждение
-        self.grace_limit = 20 # Колко кадъра да "пазим" името, ако изчезне
+        self.persistence_threshold = Config.PERSISTENCE_THRESHOLD
+        self.grace_limit = Config.GRACE_LIMIT
         self.lock = threading.Lock()
         self.new_frame_event = threading.Event()
         self.running = True
         
         # Визуална история
         self.history_dir = "data/history_cache"
-        self.max_history = 40
+        self.max_history = Config.MAX_HISTORY
         if not os.path.exists(self.history_dir):
             os.makedirs(self.history_dir)
 
