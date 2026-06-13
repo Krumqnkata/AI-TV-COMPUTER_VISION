@@ -34,6 +34,7 @@ ENV/
 .env
 data/face_encodings.pkl
 data/audio_cache/
+datya/history_cache/
 logs/
 
 # OS
