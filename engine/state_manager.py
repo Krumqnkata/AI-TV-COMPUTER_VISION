@@ -10,6 +10,7 @@ class StateManager:
     def __init__(self):
         self._lock = threading.Lock()
         self._latest_frame = None
+        self._pending_frame = None
         self._is_running = True
         self._is_processing = True
         self._people_counter = None
@@ -17,6 +18,11 @@ class StateManager:
         self._on_event_callback = None # Callback function for WebSockets
         self._active_streams = 0
         self._last_frame_time = 0
+        
+        # Оптимизация на уеб стрийминга
+        self._new_frame_event = threading.Event()
+        self._encoding_thread = threading.Thread(target=self._encoding_worker, daemon=True)
+        self._encoding_thread.start()
 
     def set_event_callback(self, callback):
         """ Задава функция, която да се вика при промяна на състоянието """
@@ -44,33 +50,57 @@ class StateManager:
         with self._lock:
             return self._active_streams > 0
 
+    def _encoding_worker(self):
+        """ Фонова нишка за JPEG компресия """
+        while self._is_running:
+            # Чакаме за нов кадър или сигнал за изход
+            if not self._new_frame_event.wait(timeout=1.0):
+                continue
+            
+            frame = None
+            with self._lock:
+                # Вземаме последния чакащ кадър САМО ако има активни зрители
+                if self._pending_frame is not None and self._active_streams > 0:
+                    frame = self._pending_frame
+                    self._pending_frame = None
+                self._new_frame_event.clear()
+
+            if frame is not None:
+                try:
+                    # 1. Намаляваме резолюцията за уеб стрийма (720p)
+                    h, w = frame.shape[:2]
+                    target_h = 720
+                    if h > target_h:
+                        scale = target_h / h
+                        frame_web = cv2.resize(frame, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                    else:
+                        frame_web = frame
+
+                    # 2. Кодираме с по-висока компресия (Quality: 70)
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
+                    ret, buffer = cv2.imencode('.jpg', frame_web, encode_param)
+                    if ret:
+                        with self._lock:
+                            self._latest_frame = buffer.tobytes()
+                except Exception:
+                    pass
+
     def update_frame(self, frame):
-        """ Записва най-новия кадър от камерата (оптимизиран за уеб стрийминг) """
+        """ Записва новия кадър за фонова обработка """
         with self._lock:
+            # Ако никой не гледа, не правим нищо
             if self._active_streams <= 0:
                 return
             
+            # Ограничаваме стрийма до ~15 FPS
             current_time = time.time()
-            if current_time - self._last_frame_time < 0.066: # ~15 FPS лимит
+            if current_time - self._last_frame_time < 0.066:
                 return
             self._last_frame_time = current_time
-
-        # 1. Намаляваме резолюцията за уеб стрийма (напр. до 720p), за да спестим трафик
-        h, w = frame.shape[:2]
-        target_h = 720
-        if h > target_h:
-            scale = target_h / h
-            frame_web = cv2.resize(frame, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-        else:
-            frame_web = frame
-
-        # 2. Кодираме с по-висока компресия (Quality: 70)
-        # Това драстично намалява Mbps без голяма загуба на видимо качество
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
-        ret, buffer = cv2.imencode('.jpg', frame_web, encode_param)
-        if ret:
-            with self._lock:
-                self._latest_frame = buffer.tobytes()
+            
+            # Само запазваме суровия кадър и събуждаме работника
+            self._pending_frame = frame.copy()
+            self._new_frame_event.set()
 
     def get_latest_frame(self):
         """ Връща последния JPEG кадър за стрийминг """

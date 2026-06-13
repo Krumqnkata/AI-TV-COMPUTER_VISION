@@ -47,6 +47,9 @@ class TTSManager:
         self.temp_dir = "data/audio_cache"
         if not os.path.exists(self.temp_dir):
             os.makedirs(self.temp_dir)
+            
+        # Автоматично почистване на стария кеш при старт
+        self._cleanup_cache(days=7)
 
         # Кеш система за спестяване на API заявки и токени
         self.ai_cache_file = "data/ai_jokes_cache.json"
@@ -55,6 +58,27 @@ class TTSManager:
 
         # Стартираме фонова нишка за обработка на опашката от шеги
         Thread(target=self._worker, daemon=True).start()
+
+    def _cleanup_cache(self, days):
+        """ Изтрива стари аудио файлове от кеша """
+        try:
+            now = time.time()
+            max_age = days * 24 * 60 * 60
+            count = 0
+            
+            for filename in os.listdir(self.temp_dir):
+                file_path = os.path.join(self.temp_dir, filename)
+                if os.path.isfile(file_path):
+                    # Проверяваме времето на последен достъп или промяна
+                    file_age = now - os.path.getmtime(file_path)
+                    if file_age > max_age:
+                        os.remove(file_path)
+                        count += 1
+            
+            if count > 0:
+                log_system(f"Cleanup: Removed {count} old audio files from cache.")
+        except Exception as e:
+            log_system(f"Failed to cleanup audio cache: {e}", "error")
 
     def _get_greeting(self):
         hour = time.localtime().tm_hour
