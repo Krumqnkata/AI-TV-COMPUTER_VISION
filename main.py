@@ -74,12 +74,12 @@ class FaceRecognitionWorker:
                 self.new_frame_event.clear()
 
             if frame is not None:
-                # Всичко се обработва вътре в face_manager
-                face_locations, face_names = self.face_manager.identify_face(frame, resize_factor=0.25)
+                # Всичко се обработва вътре в face_manager (вече връща и настроения)
+                face_locations, face_names, face_moods = self.face_manager.identify_face(frame, resize_factor=0.25)
 
                 temp_face_data = []
                 
-                for (top, right, bottom, left), name in zip(face_locations, face_names):
+                for (top, right, bottom, left), name, mood in zip(face_locations, face_names, face_moods):
                     # Броим засичанията за всяко име
                     count = self.face_history.get(name, 0) + 1
                     self.face_history[name] = count
@@ -90,7 +90,7 @@ class FaceRecognitionWorker:
                         
                         if name != "Unknown":
                             self.people_counter.register(name)
-                            self.tts_manager.speak_joke(name)
+                            self.tts_manager.speak_joke(name, mood=mood)
                             if self.state_manager:
                                 self.state_manager.on_face_recognized(name)
                 

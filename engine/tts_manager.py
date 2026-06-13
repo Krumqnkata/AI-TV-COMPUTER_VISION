@@ -97,7 +97,7 @@ class TTSManager:
             log_system(f"Error loading jokes: {e}", "error")
             return {}
 
-    def _generate_ai_joke(self, name):
+    def _generate_ai_joke(self, name, mood="serious"):
         """ Генерира шега чрез LLM (Ollama с фолбек към Gemini) """
         # Списъци за динамично конструиране на огромен брой уникални роли и настроения
         tones = [
@@ -108,19 +108,12 @@ class TTSManager:
             "робот", "детектив", "охранител на дискотека", "учен", "спортен коментатор", 
             "извънземен", "строг учител", "пират", "директор", "баба"
         ]
-        contexts = [
-            "сякаш го хващаш в крачка или закъснение",
-            "сякаш току-що си открил нов странен вид",
-            "сякаш разкриваш голяма негова тайна",
-            "сякаш посрещаш суперзвезда",
-            "сякаш ти е омръзнало да виждаш хора",
-            "с лека ирония"
-        ]
 
         tone = random.choice(tones)
         role = random.choice(roles)
-        context = random.choice(contexts)
-        style = f"Като {tone} {role}, {context}."
+        
+        mood_context = "Човекът се усмихва, поздрави го за доброто настроение." if mood == "smiling" else "Човекът е сериозен, опитай се да го развеселиш с шега."
+        style = f"Като {tone} {role}. {mood_context}"
 
         if name == "Непознат":
             prompt = f"Стил: {style} Пред камерата застана непознат човек."
@@ -130,9 +123,9 @@ class TTSManager:
         system_instruction = (
             "Ти си гласов асистент за училищно AI огледало. Твоята задача е да напишеш една "
             "ЕДИНСТВЕНА, оригинална, много кратка и забавна закачка/реплика на български език, "
-            "базирана на подадения стил и име. Правила: 1. Максимум едно кратко изречение. "
+            "базирана на подадения стил, име и настроение. Правила: 1. Максимум едно кратко изречение. "
             "2. БЕЗ въвеждащи думи, кавички, звездички или обяснения. "
-            "3. БЕЗ емоджита (тъй като гласовият синтезатор не може да ги изчете)."
+            "3. БЕЗ емоджита."
         )
 
         joke = self.llm_manager.generate(prompt, system_instruction)
@@ -140,14 +133,32 @@ class TTSManager:
         if joke:
             # Изчистване на случайни останали кавички и звездички за по-чисто изговаряне
             joke = joke.replace('"', '').replace('*', '').replace('„', '').replace('“', '') 
-            log_system(f"AI generated joke for {name} (Style: {style})")
+            log_system(f"AI generated joke for {name} (Mood: {mood})")
             return joke
         
         return None
 
-    def speak_joke(self, name):
+    def speak_joke(self, name, mood="serious"):
         current_time = time.time()
         if name not in self.last_seen or (current_time - self.last_seen[name] > self.cooldown):
+            self.last_seen[name] = current_time
+            
+            # Логване на разпознаването
+            log_system(f"Recognized: {name} (Mood: {mood})")
+            log_recognition(name)
+
+            # Изчистване на опашката от стари разпознавания, ако има натрупване
+            while self.speech_queue.qsize() > 1:
+                try:
+                    self.speech_queue.get_nowait()
+                    self.speech_queue.task_done()
+                except Exception:
+                    pass
+
+            # Добавяме името и настроението в опашката. 
+            # Цялото мислене и генериране ще се случи във фоновата нишка.
+            self.speech_queue.put((name, mood))
+
             self.last_seen[name] = current_time
             
             # Логване на разпознаването
@@ -202,51 +213,43 @@ class TTSManager:
     def _worker(self):
         """ Фонова нишка, която обработва имената, генерира шеги и ги пуска """
         while True:
-            name = self.speech_queue.get()
+            # Получаваме кортеж (name, mood)
+            queue_item = self.speech_queue.get()
+            if isinstance(queue_item, tuple):
+                name, mood = queue_item
+            else:
+                name, mood = queue_item, "serious"
             
             joke = None
             cached_list = self.ai_jokes_cache.get(name, [])
             
-            # Стратегия за спестяване на API заявки / токени:
-            # 1. Ако API е лимитирано или ИИ е спрян -> преизползваме генерирана ИИ шега (ако има)
-            # 2. Ако имаме вече поне 3 уникални генерирани шеги за този човек, в 60% от случаите ги преизползваме
-            # 3. Иначе правим нова заявка към Gemini API
-            use_cache = False
-            if not (self.llm_manager.ollama_enabled or self.llm_manager.gemini_enabled) or self._is_api_rate_limited():
-                use_cache = True
-            elif len(cached_list) >= 3 and random.random() < Config.AI_CACHE_REUSE_PROB:
-                use_cache = True
-
-            if use_cache and cached_list:
-                joke = random.choice(cached_list)
-                log_system(f"Reusing cached AI joke for {name} (Token saving / Rate limiter active)")
-
-            # Ако не ползваме кеш (или няма такъв) и API е достъпно
-            if not joke and (self.llm_manager.ollama_enabled or self.llm_manager.gemini_enabled) and not self._is_api_rate_limited():
-                joke = self._generate_ai_joke(name)
+            # Стратегия:
+            # Ако AI е достъпен, винаги генерираме нова шега, за да отразим настроението
+            if (self.llm_manager.ollama_enabled or self.llm_manager.gemini_enabled) and not self._is_api_rate_limited():
+                joke = self._generate_ai_joke(name, mood)
                 if joke:
-                    # Добавяме новата шега в кеша
+                    # Добавяме в кеша
                     if name not in self.ai_jokes_cache:
                         self.ai_jokes_cache[name] = []
                     if joke not in self.ai_jokes_cache[name]:
                         self.ai_jokes_cache[name].append(joke)
                         self._save_ai_jokes_cache()
-                    
-                    # Записваме времето на успешна API заявка
                     self.api_calls_log.append(time.time())
-            
-            # 2. Фолбек към локални статични шеги от jokes.json (ако ИИ няма резултат)
+
+            # Фолбек към кеширана шега (ако AI е спрян или лимитиран)
+            if not joke and cached_list:
+                joke = random.choice(cached_list)
+                log_system(f"Reusing cached AI joke for {name}")
+
+            # Фолбек към локални шеги (jokes.json)
             if not joke:
                 if name in self.jokes:
                     joke = random.choice(self.jokes[name])
                 elif "Default" in self.jokes:
                     joke = random.choice(self.jokes["Default"])
-                elif "Общи" in self.jokes:
-                    joke = random.choice(self.jokes["Общи"])
             
-            # 3. Ако имаме шега, я превръщаме в говор и я пускаме
             if joke:
-                # Проверка дали трябва да поздравим
+                # Поздрав (само ако е време)
                 current_time = time.time()
                 if name not in self.last_greeted or (current_time - self.last_greeted[name] > self.GREETING_COOLDOWN):
                     greeting = self._get_greeting()

@@ -22,11 +22,42 @@ class FaceManager:
             model_selection=1, # 0 за близки лица (2м), 1 за далечни (5м)
             min_detection_confidence=0.5
         )
+        
+        # Инициализиране на MediaPipe Face Mesh за настроение
+        self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=5,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
         # CLAHE за подобряване на контраста
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         
         # ThreadPool за паралелно разпознаване
         self.executor = ThreadPoolExecutor(max_workers=4)
+
+    def _analyze_mood(self, landmarks):
+        """ Анализира дали човекът се усмихва на база ключови точки """
+        try:
+            # Индекси за устата и очите в MediaPipe Face Mesh
+            m_left = landmarks.landmark[61]
+            m_right = landmarks.landmark[291]
+            
+            # Разстояние между очите (за мащаб)
+            eye_left = landmarks.landmark[33]
+            eye_right = landmarks.landmark[263]
+            
+            mouth_width = np.sqrt((m_left.x - m_right.x)**2 + (m_left.y - m_right.y)**2)
+            eye_dist = np.sqrt((eye_left.x - eye_right.x)**2 + (eye_left.y - eye_right.y)**2)
+            
+            # Коефициент на усмивка (експериментални стойности)
+            if eye_dist == 0: return "serious"
+            smile_ratio = mouth_width / eye_dist
+            
+            return "smiling" if smile_ratio > 0.85 else "serious"
+        except Exception:
+            return "serious"
 
     def _apply_clahe(self, image):
         """Прилага CLAHE върху L-канала в LAB цветовото пространство."""
@@ -230,13 +261,35 @@ class FaceManager:
         small_frame = cv2.resize(frame, (small_w, small_h), interpolation=cv2.INTER_NEAREST)
         rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
         
-        results = self.mp_face_detection.process(rgb_small)
+        # Детекция на лица
+        results_detection = self.mp_face_detection.process(rgb_small)
+        
+        # Детекция на точки (Landmarks) за настроение
+        results_mesh = self.mp_face_mesh.process(rgb_small)
         
         face_locations = []
         crops = []
-        if results.detections:
-            for detection in results.detections:
+        face_moods = []
+
+        if results_detection.detections:
+            for detection in results_detection.detections:
                 bbox = detection.location_data.relative_bounding_box
+                
+                # Център на лицето за сравнение с Mesh
+                face_center_x = bbox.xmin + bbox.width/2
+                face_center_y = bbox.ymin + bbox.height/2
+                
+                # Намираме съответното лице в Face Mesh
+                mood = "serious"
+                if results_mesh.multi_face_landmarks:
+                    min_dist = 1.0
+                    for landmarks in results_mesh.multi_face_landmarks:
+                        # Вземаме носа (точка 1) за център на меша
+                        nose = landmarks.landmark[1]
+                        dist = np.sqrt((nose.x - face_center_x)**2 + (nose.y - face_center_y)**2)
+                        if dist < min_dist and dist < 0.2: # Лицето трябва да е близо
+                            min_dist = dist
+                            mood = self._analyze_mood(landmarks)
                 
                 left = int(bbox.xmin * width)
                 top = int(bbox.ymin * height)
@@ -256,11 +309,12 @@ class FaceManager:
                 if face_crop.size > 0:
                     face_locations.append((top, right, bottom, left))
                     crops.append(face_crop)
+                    face_moods.append(mood)
 
         if not crops:
-            return [], []
+            return [], [], []
 
         # 2. Паралелно разпознаване чрез ThreadPoolExecutor
         face_names = list(self.executor.map(self._recognize_worker, crops))
         
-        return face_locations, face_names
+        return face_locations, face_names, face_moods
