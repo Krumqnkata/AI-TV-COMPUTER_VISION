@@ -174,12 +174,14 @@ class FaceRecognitionWorker:
                                 if self.state_manager:
                                     self.state_manager.on_face_recognized(name, image_filename=img_file)
                             elif img_file:
+                                # Регистрираме уникален Unknown
+                                unique_id = f"Unknown_{img_file}"
+                                self.people_counter.register(unique_id)
+                                
                                 if self.state_manager:
                                     self.state_manager.on_face_recognized("Unknown", image_filename=img_file)
 
-                # Обновяваме брояча за непознати
-                unknown_count = face_names.count("Unknown")
-                self.people_counter.update_unknowns(unknown_count)
+                # Обновяваме брояча за непознати - вече не е нужно, тъй като регистрираме всеки Unknown индивидуално
 
                 with self.lock:
                     self.face_data = temp_face_data
