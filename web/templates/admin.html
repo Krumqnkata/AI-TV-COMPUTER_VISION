@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School AI - Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: #0a0a0c;
+            color: #e2e8f0;
+        }
+        .cyber-border {
+            border: 1px solid #d946ef;
+            box-shadow: 0 0 15px rgba(217, 70, 239, 0.2);
+        }
+        .cyber-border-cyan {
+            border: 1px solid #00f2ff;
+            box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+        }
+        .cyber-bg {
+            background: rgba(15, 15, 20, 0.85);
+            backdrop-filter: blur(12px);
+        }
+        .glow-text {
+            text-shadow: 0 0 10px rgba(217, 70, 239, 0.5);
+        }
+        .glow-text-cyan {
+            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d946ef; border-radius: 10px; }
+        .custom-scrollbar-cyan::-webkit-scrollbar-thumb { background: #06b6d4; border-radius: 10px; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <!-- Login Overlay -->
+    <div id="login-overlay" class="fixed inset-0 z-50 bg-[#060608] flex items-center justify-center p-4">
+        <div class="max-w-md w-full cyber-bg cyber-border p-8 rounded-lg relative overflow-hidden">
+            <div class="absolute -top-12 -right-12 w-36 h-36 bg-fuchsia-500/10 rounded-full blur-2xl"></div>
+            
+            <h2 class="text-3xl font-bold tracking-tighter text-fuchsia-500 glow-text mb-6 text-center">
+                SCHOOL AI <span class="text-white">ADMIN LOGIN</span>
+            </h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Потребителско име</label>
+                    <input type="text" id="login-username" value="admin" class="w-full bg-black/40 border border-slate-700 p-3 rounded text-sm text-slate-300 focus:border-fuchsia-500 outline-none">
+                </div>
+                <div>
+                    <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Парола</label>
+                    <input type="password" id="login-password" placeholder="••••••••" class="w-full bg-black/40 border border-slate-700 p-3 rounded text-sm text-slate-300 focus:border-fuchsia-500 outline-none">
+                </div>
+                <button onclick="attemptLogin()" class="w-full py-3 mt-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(217,70,239,0.4)]">
+                    Идентификация
+                </button>
+                <p class="text-[10px] text-slate-600 text-center uppercase tracking-wide">Парола по подразбиране: admin123</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="max-w-7xl mx-auto hidden" id="admin-main">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8 border-b border-fuchsia-900/50 pb-4">
+            <div>
+                <h1 class="text-4xl font-bold tracking-tighter text-fuchsia-500 glow-text">SCHOOL AI <span class="text-white">ADMIN CONTROL</span></h1>
+                <p class="text-sm text-fuchsia-600 uppercase tracking-widest">Административен интерфейс за управление // Баджове, събития и разписание</p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <a href="/" class="px-4 py-2 rounded border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 text-xs font-bold transition-all">
+                    КЪМ КЛИЕНТСКИЯ HUD
+                </a>
+                <button onclick="logout()" class="px-4 py-2 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 text-xs font-bold transition-all">
+                    ИЗХОД
+                </button>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <div class="flex space-x-2 border-b border-slate-800 mb-6">
+            <button onclick="switchTab('users')" id="tab-users" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-fuchsia-500 text-fuchsia-400">
+                Потребители & Баджове
+            </button>
+            <button onclick="switchTab('timetable')" id="tab-timetable" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
+                Училищно разписание
+            </button>
+            <button onclick="switchTab('events')" id="tab-events" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
+                Събития & Клубове
+            </button>
+            <button onclick="switchTab('messages')" id="tab-messages" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
+                Виртуална поща
+            </button>
+        </div>
+
+        <!-- ================= TAB: USERS ================= -->
+        <div id="section-users" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- List Users (Left) -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
+                        Списък с потребители
+                    </h3>
+                    <div class="overflow-x-auto custom-scrollbar">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
+                                    <th class="py-3 px-2">ID</th>
+                                    <th class="py-3 px-2">Име</th>
+                                    <th class="py-3 px-2">Роля</th>
+                                    <th class="py-3 px-2">Клас</th>
+                                    <th class="py-3 px-2">Профил</th>
+                                    <th class="py-3 px-2">Бадж</th>
+                                    <th class="py-3 px-2 text-right">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body" class="divide-y divide-slate-900">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Register User & General Info (Right) -->
+            <div class="space-y-6">
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
+                        Добави нов потребител
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Име и фамилия</label>
+                            <input type="text" id="add-user-name" placeholder="напр. Иван Иванов" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Роля</label>
+                                <select id="add-user-role" onchange="toggleAddClass()" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                                    <option value="student">Ученик</option>
+                                    <option value="teacher">Учител</option>
+                                    <option value="admin">Администратор</option>
+                                    <option value="guest">Гост</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас</label>
+                                <input type="text" id="add-user-class" placeholder="напр. 9Б" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                            </div>
+                        </div>
+                        <button onclick="addNewUser()" class="w-full py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
+                            Регистрирай потребител
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Badges Management Info -->
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
+                        Активни баджове в системата
+                    </h3>
+                    <div class="h-48 overflow-y-auto custom-scrollbar space-y-2" id="badges-list-container">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB: TIMETABLE ================= -->
+        <div id="section-timetable" class="grid grid-cols-1 lg:grid-cols-3 gap-8 hidden">
+            <!-- Timetable Loader (Left) -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
+                    <div class="flex justify-between items-center mb-4 border-b border-cyan-950 pb-2">
+                        <h3 class="text-cyan-400 text-xs font-bold uppercase tracking-widest">
+                            Учебна програма за избран потребител
+                        </h3>
+                        <select id="timetable-user-select" onchange="loadUserTimetable()" class="bg-black/40 border border-slate-700 p-1.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            <option value="">Избери потребител...</option>
+                        </select>
+                    </div>
+                    <div class="overflow-x-auto custom-scrollbar-cyan">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
+                                    <th class="py-3 px-2">Дата</th>
+                                    <th class="py-3 px-2">Час (Период)</th>
+                                    <th class="py-3 px-2">Време</th>
+                                    <th class="py-3 px-2">Предмет</th>
+                                    <th class="py-3 px-2">Клас</th>
+                                    <th class="py-3 px-2">Кабинет</th>
+                                    <th class="py-3 px-2 text-right">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="timetable-table-body" class="divide-y divide-slate-900">
+                                <tr>
+                                    <td colspan="7" class="py-6 text-center text-slate-500">Изберете потребител, за да видите програмата му</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Lesson (Right) -->
+            <div class="space-y-6">
+                <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
+                    <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-950 pb-2">
+                        Добави час в програмата
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Потребител</label>
+                            <select id="add-lesson-user" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                                <option value="">Избери...</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Дата</label>
+                                <input type="date" id="add-lesson-date" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Час № (Период)</label>
+                                <input type="number" id="add-lesson-period" min="1" max="8" value="1" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало (ЧЧ:ММ)</label>
+                                <input type="text" id="add-lesson-start" placeholder="08:00" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край (ЧЧ:ММ)</label>
+                                <input type="text" id="add-lesson-end" placeholder="08:45" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Предмет</label>
+                                <input type="text" id="add-lesson-subject" placeholder="напр. Математика" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет</label>
+                                <input type="text" id="add-lesson-room" placeholder="напр. Кабинет 201" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас (само за ученици/учители)</label>
+                            <input type="text" id="add-lesson-class" placeholder="напр. 9Б" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                        </div>
+                        <button onclick="addNewLesson()" class="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
+                            Запиши часа
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB: EVENTS ================= -->
+        <div id="section-events" class="grid grid-cols-1 lg:grid-cols-3 gap-8 hidden">
+            <!-- Events list (Left) -->
+            <div class="lg:col-span-2 space-y-6">
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
+                        Списък с училищни събития
+                    </h3>
+                    <div class="overflow-x-auto custom-scrollbar">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
+                                    <th class="py-3 px-2">ID</th>
+                                    <th class="py-3 px-2">Събитие</th>
+                                    <th class="py-3 px-2">Описание</th>
+                                    <th class="py-3 px-2">Начало</th>
+                                    <th class="py-3 px-2">Край</th>
+                                    <th class="py-3 px-2">Група</th>
+                                    <th class="py-3 px-2">Кабинет</th>
+                                    <th class="py-3 px-2 text-right">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="events-table-body" class="divide-y divide-slate-900">
+                                <!-- Loaded dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Create Event (Right) -->
+            <div class="space-y-6">
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
+                        Създай ново събитие
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Заглавие</label>
+                            <input type="text" id="add-event-title" placeholder="напр. Концерт на училището" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Описание</label>
+                            <textarea id="add-event-desc" rows="2" placeholder="Кратко описание..." class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none resize-none"></textarea>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало (Дата & Час)</label>
+                                <input type="datetime-local" id="add-event-start" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край (Дата & Час)</label>
+                                <input type="datetime-local" id="add-event-end" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Целева група</label>
+                                <input type="text" id="add-event-group" placeholder="напр. All или 9Б" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет/Зала</label>
+                                <input type="text" id="add-event-room" placeholder="напр. Фоайе" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
+                            </div>
+                        </div>
+                        <button onclick="addNewEvent()" class="w-full py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
+                            Публикувай събитието
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= TAB: MESSAGES ================= -->
+        <div id="section-messages" class="space-y-6 hidden">
+            <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
+                <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-950 pb-2">
+                    Архив на виртуалната поща (Всички съобщения)
+                </h3>
+                <div class="overflow-x-auto custom-scrollbar-cyan">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
+                                <th class="py-3 px-2">ID</th>
+                                <th class="py-3 px-2">Подател</th>
+                                <th class="py-3 px-2">Получател</th>
+                                <th class="py-3 px-2">Съдържание</th>
+                                <th class="py-3 px-2">Валидно до</th>
+                                <th class="py-3 px-2">Доставено на</th>
+                                <th class="py-3 px-2">Статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="messages-table-body" class="divide-y divide-slate-900">
+                            <!-- Loaded dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Badge Generated Modal -->
+    <div id="qr-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="max-w-sm w-full cyber-bg cyber-border-cyan p-6 rounded-lg text-center relative">
+            <h3 class="text-lg font-bold text-cyan-400 mb-2 glow-text-cyan">УСПЕШНО ГЕНЕРИРАН БАДЖ</h3>
+            <p class="text-xs text-slate-400 mb-4" id="qr-modal-user">-</p>
+            
+            <div class="bg-white p-4 rounded-lg inline-block mb-4">
+                <canvas id="qr-canvas"></canvas>
+            </div>
+            
+            <p class="text-xs text-slate-300 font-mono select-all bg-black/60 p-2 rounded mb-6" id="qr-modal-token">-</p>
+            
+            <button onclick="closeQRModal()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 rounded font-bold text-xs uppercase tracking-widest transition-all">
+                Затвори
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Authentication management
+        function attemptLogin() {
+            const pass = document.getElementById('login-password').value;
+            if (pass === 'admin123') {
+                sessionStorage.setItem('isAdminLoggedIn', 'true');
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('admin-main').classList.remove('hidden');
+                initAdmin();
+            } else {
+                alert('Невалидна парола! Моля опитайте отново.');
+            }
+        }
+
+        function checkAuth() {
+            if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('admin-main').classList.remove('hidden');
+                initAdmin();
+            }
+        }
+
+        function logout() {
+            sessionStorage.removeItem('isAdminLoggedIn');
+            location.reload();
+        }
+
+        // Tab Switcher
+        function switchTab(tab) {
+            const sections = ['users', 'timetable', 'events', 'messages'];
+            sections.forEach(s => {
+                const secEl = document.getElementById(`section-${s}`);
+                const tabEl = document.getElementById(`tab-${s}`);
+                if (s === tab) {
+                    secEl.classList.remove('hidden');
+                    tabEl.className = "px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-fuchsia-500 text-fuchsia-400";
+                } else {
+                    secEl.classList.add('hidden');
+                    tabEl.className = "px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200";
+                }
+            });
+            
+            // Reload specific tab data
+            if (tab === 'users') {
+                loadUsersTab();
+            } else if (tab === 'timetable') {
+                loadTimetableTab();
+            } else if (tab === 'events') {
+                loadEventsTab();
+            } else if (tab === 'messages') {
+                loadMessagesTab();
+            }
+        }
+
+        // Data initialization
+        function initAdmin() {
+            loadUsersTab();
+        }
+
+        // Helpers
+        function formatRole(role) {
+            const roles = {
+                student: 'Ученик',
+                teacher: 'Учител',
+                admin: 'Админ',
+                guest: 'Гост'
+            };
+            return roles[role] || role;
+        }
+
+        function formatDate(isoStr) {
+            if (!isoStr) return '-';
+            const d = new Date(isoStr);
+            return d.toLocaleString('bg-BG');
+        }
+
+        // ================= USERS & BADGES LOGIC =================
+        let allPersons = [];
+
+        async function loadUsersTab() {
+            try {
+                const res = await fetch('/api/persons');
+                allPersons = await res.json();
+                
+                const tableBody = document.getElementById('users-table-body');
+                tableBody.innerHTML = '';
+                
+                // Get badges to find active badges
+                const badgesRes = await fetch('/api/badges');
+                const badges = await badgesRes.json();
+                
+                allPersons.forEach(p => {
+                    // Find active badge for this user
+                    const userBadges = badges.filter(b => b.person_id === p.id);
+                    const activeBadge = userBadges.find(b => b.status === 'active');
+                    
+                    let badgeInfo = '<span class="text-slate-600">Няма</span>';
+                    let badgeActions = '';
+                    
+                    if (activeBadge) {
+                        badgeInfo = `<span class="text-green-500 font-mono font-bold">Активен</span>`;
+                        badgeActions = `
+                            <button onclick="changeBadgeStatus(${activeBadge.id}, 'lost')" class="px-2 py-1 bg-yellow-900/40 text-yellow-400 border border-yellow-700/30 hover:bg-yellow-900/60 text-[10px] rounded transition-all mr-1">
+                                ИЗГУБЕН
+                            </button>
+                            <button onclick="changeBadgeStatus(${activeBadge.id}, 'disabled')" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all mr-1">
+                                СПРИ
+                            </button>
+                        `;
+                    } else if (userBadges.length > 0) {
+                        const lostCount = userBadges.filter(b => b.status === 'lost').length;
+                        badgeInfo = `<span class="text-red-500 font-mono text-[10px]">Липсва ${lostCount > 0 ? '(Изгубени: ' + lostCount + ')' : ''}</span>`;
+                    }
+                    
+                    const row = `
+                        <tr class="hover:bg-slate-900/20">
+                            <td class="py-3 px-2 font-mono text-slate-500">${p.id}</td>
+                            <td class="py-3 px-2 font-bold">${p.full_name}</td>
+                            <td class="py-3 px-2 text-slate-300">${formatRole(p.role)}</td>
+                            <td class="py-3 px-2 text-slate-400">${p.class_name || '-'}</td>
+                            <td class="py-3 px-2">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${p.active ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">
+                                    ${p.active ? 'АКТИВЕН' : 'СПРЯН'}
+                                </span>
+                            </td>
+                            <td class="py-3 px-2">${badgeInfo}</td>
+                            <td class="py-3 px-2 text-right">
+                                ${badgeActions}
+                                <button onclick="generateNewBadgeForUser(${p.id}, '${p.full_name}')" class="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] rounded transition-all font-bold mr-1">
+                                    НОВ БАДЖ
+                                </button>
+                                <button onclick="togglePersonStatus(${p.id}, ${p.active})" class="px-2 py-1 border text-[10px] rounded transition-all ${p.active ? 'border-red-900 text-red-400 hover:bg-red-900/20' : 'border-green-900 text-green-400 hover:bg-green-500/10'}">
+                                    ${p.active ? 'ДЕАКТИВИРАЙ' : 'АКТИВИРАЙ'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+                
+                // Load badges sidebar
+                const badgesContainer = document.getElementById('badges-list-container');
+                badgesContainer.innerHTML = '';
+                badges.forEach(b => {
+                    const statusClass = {
+                        active: 'text-green-400',
+                        lost: 'text-yellow-500 animate-pulse',
+                        disabled: 'text-slate-600'
+                    }[b.status] || 'text-slate-400';
+                    
+                    const card = `
+                        <div class="p-2.5 bg-black/40 border border-slate-800 rounded flex justify-between items-center text-xs">
+                            <div>
+                                <p class="font-bold text-slate-200">${b.person_name}</p>
+                                <p class="text-[10px] font-mono text-slate-500 select-all">${b.token_hash.slice(0, 16)}...</p>
+                            </div>
+                            <span class="font-bold text-[10px] uppercase ${statusClass}">${b.status}</span>
+                        </div>
+                    `;
+                    badgesContainer.insertAdjacentHTML('beforeend', card);
+                });
+                
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function addNewUser() {
+            const name = document.getElementById('add-user-name').value.trim();
+            const role = document.getElementById('add-user-role').value;
+            const className = document.getElementById('add-user-class').value.trim();
+            
+            if (!name) {
+                alert('Моля въведете име!');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/persons', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        full_name: name,
+                        role: role,
+                        class_name: role === 'student' ? className : null
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('add-user-name').value = '';
+                    document.getElementById('add-user-class').value = '';
+                    loadUsersTab();
+                    alert('Потребителят е регистриран успешно!');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function toggleAddClass() {
+            const role = document.getElementById('add-user-role').value;
+            const classInput = document.getElementById('add-user-class');
+            if (role === 'student') {
+                classInput.disabled = false;
+                classInput.placeholder = "напр. 9Б";
+                classInput.className = "w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none";
+            } else {
+                classInput.disabled = true;
+                classInput.placeholder = "Няма";
+                classInput.value = "";
+                classInput.className = "w-full bg-slate-900 border border-slate-800 p-2.5 rounded text-xs text-slate-600 outline-none cursor-not-allowed";
+            }
+        }
+
+        async function togglePersonStatus(personId, currentActive) {
+            try {
+                const res = await fetch(`/api/persons/${personId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: !currentActive })
+                });
+                if (res.ok) {
+                    loadUsersTab();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function changeBadgeStatus(badgeId, newStatus) {
+            try {
+                const res = await fetch(`/api/badges/${badgeId}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                if (res.ok) {
+                    loadUsersTab();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function generateNewBadgeForUser(personId, userName) {
+            if (!confirm(`Сигурни ли сте, че искате да генерирате нов QR код за ${userName}? Всички предишни баджове за този потребител ще бъдат анулирани.`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/persons/${personId}/badge`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showQRModal(userName, data.token);
+                    loadUsersTab();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // QR Code Modal Visualizer
+        function showQRModal(userName, token) {
+            document.getElementById('qr-modal-user').innerText = userName;
+            document.getElementById('qr-modal-token').innerText = token;
+            
+            const canvas = document.getElementById('qr-canvas');
+            QRCode.toCanvas(canvas, token, {
+                width: 200,
+                margin: 1,
+                color: {
+                    dark: '#000000',
+                    light: '#ffffff'
+                }
+            }, function (error) {
+                if (error) console.error(error);
+            });
+            
+            document.getElementById('qr-modal').classList.remove('hidden');
+        }
+
+        function closeQRModal() {
+            document.getElementById('qr-modal').classList.add('hidden');
+        }
+
+
+        // ================= TIMETABLE LOGIC =================
+        async function loadTimetableTab() {
+            // Load dropdowns for users
+            try {
+                const res = await fetch('/api/persons');
+                const persons = await res.json();
+                
+                const userSelect = document.getElementById('timetable-user-select');
+                const addSelect = document.getElementById('add-lesson-user');
+                
+                userSelect.innerHTML = '<option value="">Избери потребител...</option>';
+                addSelect.innerHTML = '<option value="">Избери...</option>';
+                
+                persons.forEach(p => {
+                    const text = `${p.full_name} (${formatRole(p.role)}${p.class_name ? ' - ' + p.class_name : ''})`;
+                    userSelect.add(new Option(text, p.id));
+                    addSelect.add(new Option(text, p.id));
+                });
+                
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadUserTimetable() {
+            const personId = document.getElementById('timetable-user-select').value;
+            const tableBody = document.getElementById('timetable-table-body');
+            
+            if (!personId) {
+                tableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Изберете потребител, за да видите програмата му</td></tr>';
+                return;
+            }
+            
+            try {
+                // We will load timetable for the selected user.
+                // Since our timetable is date-specific in db, let's load for today and display the records.
+                // We'll show today's program. In admin, let's fetch timetable for today.
+                const todayStr = new Date().toISOString().split('T')[0];
+                const res = await fetch(`/api/persons/${personId}/timetable?date_str=2026-07-10`); // Test date is 2026-07-10
+                const timetable = await res.json();
+                
+                tableBody.innerHTML = '';
+                if (timetable.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Няма записани часове в програмата на този потребител за 10 Юли 2026</td></tr>';
+                    return;
+                }
+                
+                timetable.forEach(t => {
+                    const row = `
+                        <tr class="hover:bg-slate-900/20">
+                            <td class="py-3 px-2 font-mono">2026-07-10</td>
+                            <td class="py-3 px-2 font-bold">${t.period}</td>
+                            <td class="py-3 px-2 font-mono text-cyan-400">${t.start_time} - ${t.end_time}</td>
+                            <td class="py-3 px-2 font-bold text-slate-100">${t.subject}</td>
+                            <td class="py-3 px-2 text-slate-400">${t.class_name || '-'}</td>
+                            <td class="py-3 px-2 text-slate-300">${t.room}</td>
+                            <td class="py-3 px-2 text-right">
+                                <button onclick="deleteLesson(${t.id})" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all">
+                                    ИЗТРИЙ
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function addNewLesson() {
+            const personId = document.getElementById('add-lesson-user').value;
+            const dateVal = document.getElementById('add-lesson-date').value;
+            const period = document.getElementById('add-lesson-period').value;
+            const start = document.getElementById('add-lesson-start').value;
+            const end = document.getElementById('add-lesson-end').value;
+            const subject = document.getElementById('add-lesson-subject').value;
+            const room = document.getElementById('add-lesson-room').value;
+            const className = document.getElementById('add-lesson-class').value;
+            
+            if (!personId || !dateVal || !period || !start || !end || !subject || !room) {
+                alert('Моля попълнете всички задължителни полета!');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/timetable', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        person_id: parseInt(personId),
+                        date: dateVal,
+                        period: parseInt(period),
+                        start_time: start,
+                        end_time: end,
+                        subject: subject,
+                        class_name: className || null,
+                        room: room
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    alert('Часът е записан успешно!');
+                    // Reset some fields
+                    document.getElementById('add-lesson-period').value = parseInt(period) + 1;
+                    document.getElementById('add-lesson-start').value = '';
+                    document.getElementById('add-lesson-end').value = '';
+                    document.getElementById('add-lesson-subject').value = '';
+                    document.getElementById('add-lesson-room').value = '';
+                    document.getElementById('add-lesson-class').value = '';
+                    
+                    // Reload table if current user is active
+                    if (document.getElementById('timetable-user-select').value === personId) {
+                        loadUserTimetable();
+                    }
+                } else {
+                    alert('Грешка: ' + data.detail);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function deleteLesson(recordId) {
+            if (!confirm('Сигурни ли сте, че искате да изтриете този час от разписанието?')) return;
+            try {
+                const res = await fetch(`/api/timetable/${recordId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadUserTimetable();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+
+        // ================= EVENTS LOGIC =================
+        async function loadEventsTab() {
+            try {
+                const res = await fetch('/api/events');
+                const events = await res.json();
+                
+                const tableBody = document.getElementById('events-table-body');
+                tableBody.innerHTML = '';
+                
+                events.forEach(e => {
+                    const row = `
+                        <tr class="hover:bg-slate-900/20">
+                            <td class="py-3 px-2 font-mono text-slate-500">${e.id}</td>
+                            <td class="py-3 px-2 font-bold">${e.title}</td>
+                            <td class="py-3 px-2 text-slate-400 max-w-xs truncate">${e.description || '-'}</td>
+                            <td class="py-3 px-2 font-mono text-cyan-400">${formatDate(e.start_time)}</td>
+                            <td class="py-3 px-2 font-mono text-cyan-400">${formatDate(e.end_time)}</td>
+                            <td class="py-3 px-2 text-slate-300 font-bold">${e.target_group || 'All'}</td>
+                            <td class="py-3 px-2 text-slate-300">${e.room || '-'}</td>
+                            <td class="py-3 px-2 text-right">
+                                <button onclick="deleteEvent(${e.id})" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all">
+                                    ИЗТРИЙ
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function addNewEvent() {
+            const title = document.getElementById('add-event-title').value.trim();
+            const desc = document.getElementById('add-event-desc').value.trim();
+            const start = document.getElementById('add-event-start').value;
+            const end = document.getElementById('add-event-end').value;
+            const group = document.getElementById('add-event-group').value.trim();
+            const room = document.getElementById('add-event-room').value.trim();
+            
+            if (!title || !start || !end) {
+                alert('Моля попълнете заглавие и начален/краен час!');
+                return;
+            }
+            
+            try {
+                const res = await fetch('/api/events', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: title,
+                        description: desc || null,
+                        start_time: start,
+                        end_time: end,
+                        target_group: group || 'All',
+                        room: room || null
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    alert('Събитието е публикувано успешно!');
+                    document.getElementById('add-event-title').value = '';
+                    document.getElementById('add-event-desc').value = '';
+                    document.getElementById('add-event-start').value = '';
+                    document.getElementById('add-event-end').value = '';
+                    document.getElementById('add-event-group').value = '';
+                    document.getElementById('add-event-room').value = '';
+                    loadEventsTab();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function deleteEvent(eventId) {
+            if (!confirm('Сигурни ли сте, че искате да изтриете това събитие?')) return;
+            try {
+                const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadEventsTab();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+
+        // ================= MESSAGES LOGIC =================
+        async function loadMessagesTab() {
+            try {
+                const res = await fetch('/api/messages');
+                const messages = await res.json();
+                
+                const tableBody = document.getElementById('messages-table-body');
+                tableBody.innerHTML = '';
+                
+                messages.forEach(m => {
+                    const statusColors = {
+                        active: 'bg-green-500/10 text-green-400 border border-green-500/20',
+                        delivered: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20',
+                        expired: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
+                        deleted: 'bg-red-500/10 text-red-400 border border-red-500/20'
+                    };
+                    const statusClass = statusColors[m.status] || 'bg-slate-500/10 text-slate-400';
+                    
+                    const row = `
+                        <tr class="hover:bg-slate-900/20">
+                            <td class="py-3 px-2 font-mono text-slate-500">${m.id}</td>
+                            <td class="py-3 px-2 font-bold text-slate-300">${m.sender_name}</td>
+                            <td class="py-3 px-2 font-bold text-slate-300">${m.recipient_name}</td>
+                            <td class="py-3 px-2 text-slate-100 max-w-sm font-sans">${m.text}</td>
+                            <td class="py-3 px-2 font-mono text-slate-400">${formatDate(m.valid_until)}</td>
+                            <td class="py-3 px-2 font-mono text-slate-400">${formatDate(m.delivered_at)}</td>
+                            <td class="py-3 px-2">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusClass}">
+                                    ${m.status.toUpperCase()}
+                                </span>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('beforeend', row);
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Initialize Authentication Check
+        checkAuth();
+    </script>
+</body>
+</html>

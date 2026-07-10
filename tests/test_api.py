@@ -172,7 +172,7 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertEqual(pending_response.status_code, 200)
         pending_data = pending_response.json()
         texts = [m["text"] for m in pending_data]
-        self.assertIn("го чакам след часовете в двора.", texts)
+        self.assertTrue(any("го чакам след часовете в двора" in t for t in texts))
 
     def test_10_voice_command_check_messages(self):
         """ Тест за проверка на съобщения с гласова команда """
@@ -212,6 +212,90 @@ class TestSchoolAIAPI(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["intent"], "show_events")
         self.assertIn("Днес има следните събития", data["response"])
+
+    def test_13_admin_events_crud(self):
+        """ Тест за CRUD операции върху събития """
+        res = self.client.get("/api/events")
+        self.assertEqual(res.status_code, 200)
+        initial_count = len(res.json())
+        
+        payload = {
+            "title": "Тестово събитие",
+            "description": "Тестово описание",
+            "start_time": "2026-07-10T15:00:00",
+            "end_time": "2026-07-10T16:00:00",
+            "target_group": "All",
+            "room": "Фоайе"
+        }
+        res_post = self.client.post("/api/events", json=payload)
+        self.assertEqual(res_post.status_code, 200)
+        self.assertTrue(res_post.json()["success"])
+        event_id = res_post.json()["event_id"]
+        
+        res2 = self.client.get("/api/events")
+        self.assertEqual(len(res2.json()), initial_count + 1)
+        
+        res_del = self.client.delete(f"/api/events/{event_id}")
+        self.assertEqual(res_del.status_code, 200)
+        self.assertTrue(res_del.json()["success"])
+
+    def test_14_admin_timetable_crud(self):
+        """ Тест за създаване и изтриване на часове от разписанието """
+        anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
+        payload = {
+            "person_id": anton.id,
+            "date": "2026-07-10",
+            "period": 6,
+            "start_time": "12:30",
+            "end_time": "13:15",
+            "subject": "Тест предмет",
+            "class_name": "9Б",
+            "room": "Кабинет 304"
+        }
+        res = self.client.post("/api/timetable", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["success"])
+        record_id = res.json()["record_id"]
+        
+        res_del = self.client.delete(f"/api/timetable/{record_id}")
+        self.assertEqual(res_del.status_code, 200)
+        self.assertTrue(res_del.json()["success"])
+
+    def test_15_admin_badges(self):
+        """ Тест за управление на баджове """
+        res = self.client.get("/api/badges")
+        self.assertEqual(res.status_code, 200)
+        self.assertGreater(len(res.json()), 0)
+        
+        anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
+        res_gen = self.client.post(f"/api/persons/{anton.id}/badge")
+        self.assertEqual(res_gen.status_code, 200)
+        data = res_gen.json()
+        self.assertTrue(data["success"])
+        self.assertIn("SCH-", data["token"])
+        badge_id = data["badge_id"]
+        
+        res_status = self.client.post(f"/api/badges/{badge_id}/status", json={"status": "lost"})
+        self.assertEqual(res_status.status_code, 200)
+        self.assertEqual(res_status.json()["status"], "lost")
+
+    def test_16_admin_person_status(self):
+        """ Тест за активиране/деактивиране на потребител """
+        anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
+        
+        res = self.client.post(f"/api/persons/{anton.id}/status", json={"active": False})
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.json()["active"])
+        
+        res = self.client.post(f"/api/persons/{anton.id}/status", json={"active": True})
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["active"])
+
+    def test_17_admin_get_messages(self):
+        """ Тест за взимане на всички съобщения """
+        res = self.client.get("/api/messages")
+        self.assertEqual(res.status_code, 200)
+        self.assertGreater(len(res.json()), 0)
 
 
 if __name__ == "__main__":

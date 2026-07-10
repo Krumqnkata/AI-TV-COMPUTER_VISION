@@ -57,6 +57,30 @@ class PersonCreateRequest(BaseModel):
     role: str  # student / teacher / admin / guest
     class_name: Optional[str] = None
 
+class EventCreateRequest(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    target_group: Optional[str] = "All"
+    room: Optional[str] = None
+
+class TimetableCreateRequest(BaseModel):
+    person_id: int
+    date: date
+    period: int
+    start_time: str # "HH:MM"
+    end_time: str # "HH:MM"
+    subject: str
+    class_name: Optional[str] = None
+    room: str
+
+class BadgeStatusRequest(BaseModel):
+    status: str # active / lost / disabled
+
+class PersonStatusRequest(BaseModel):
+    active: bool
+
 # Уверяваме се, че директориите за кеш съществуват преди да ги монтираме
 os.makedirs("data/audio_cache", exist_ok=True)
 os.makedirs("data/history_cache", exist_ok=True)
@@ -111,6 +135,10 @@ def get_video_stream():
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request):
+    return templates.TemplateResponse("admin.html", {"request": request})
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -508,6 +536,254 @@ async def list_interaction_points(db: Session = Depends(get_db)):
         "screen_id": p.screen_id,
         "active": p.active
     } for p in pts]
+
+# ==========================================
+# АДМИНИСТРАТИВНИ API АДРЕСИ (ЕТАП 9 & 10)
+# ==========================================
+
+@app.get("/api/events")
+async def get_all_events(db: Session = Depends(get_db)):
+    """ Връща списък с всички събития """
+    events = db.query(Event).order_by(Event.start_time).all()
+    return [{
+        "id": e.id,
+        "title": e.title,
+        "description": e.description,
+        "start_time": e.start_time.isoformat(),
+        "end_time": e.end_time.isoformat(),
+        "target_group": e.target_group,
+        "room": e.room
+    } for e in events]
+
+@app.post("/api/events")
+async def create_event(request: EventCreateRequest, db: Session = Depends(get_db)):
+    """ Създава ново събитие """
+    event = Event(
+        title=request.title,
+        description=request.description,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        target_group=request.target_group,
+        room=request.room
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_event_created",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"event_id": event.id, "title": event.title}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True, "event_id": event.id}
+
+@app.delete("/api/events/{event_id}")
+async def delete_event(event_id: int, db: Session = Depends(get_db)):
+    """ Изтрива събитие """
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Събитието не съществува")
+    db.delete(event)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_event_deleted",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"event_id": event_id, "title": event.title}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True}
+
+@app.post("/api/timetable")
+async def create_timetable_record(request: TimetableCreateRequest, db: Session = Depends(get_db)):
+    """ Добавя нов запис в разписанието """
+    try:
+        st = datetime.strptime(request.start_time, "%H:%M").time()
+        et = datetime.strptime(request.end_time, "%H:%M").time()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Невалиден формат за час. Използвайте ЧЧ:ММ")
+        
+    record = Timetable(
+        person_id=request.person_id,
+        date=request.date,
+        period=request.period,
+        start_time=st,
+        end_time=et,
+        subject=request.subject,
+        class_name=request.class_name,
+        room=request.room
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_timetable_created",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"record_id": record.id, "person_id": record.person_id}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True, "record_id": record.id}
+
+@app.delete("/api/timetable/{record_id}")
+async def delete_timetable_record(record_id: int, db: Session = Depends(get_db)):
+    """ Изтрива запис от разписанието """
+    record = db.query(Timetable).filter(Timetable.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Записът не съществува")
+    db.delete(record)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_timetable_deleted",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"record_id": record_id, "person_id": record.person_id}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True}
+
+@app.get("/api/badges")
+async def get_all_badges(db: Session = Depends(get_db)):
+    """ Връща списък с всички баджове """
+    badges = db.query(Badge).all()
+    return [{
+        "id": b.id,
+        "person_id": b.person_id,
+        "person_name": b.person.full_name,
+        "token_hash": b.token_hash,
+        "status": b.status,
+        "created_at": b.created_at.isoformat()
+    } for b in badges]
+
+@app.post("/api/persons/{person_id}/badge")
+async def generate_badge(person_id: int, db: Session = Depends(get_db)):
+    """ Генерира нов активен QR бадж за даден потребител и деактивира старите """
+    import uuid
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Потребителят не съществува")
+        
+    old_badges = db.query(Badge).filter(Badge.person_id == person_id, Badge.status == "active").all()
+    for ob in old_badges:
+        ob.status = "disabled"
+        
+    token = f"SCH-{uuid.uuid4().hex[:8].upper()}"
+    hashed = hash_token(token)
+    
+    badge = Badge(
+        person_id=person_id,
+        token_hash=hashed,
+        status="active"
+    )
+    db.add(badge)
+    db.commit()
+    db.refresh(badge)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_badge_generated",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"badge_id": badge.id, "person_id": person_id}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {
+        "success": True,
+        "badge_id": badge.id,
+        "token": token,
+        "status": badge.status
+    }
+
+@app.post("/api/badges/{badge_id}/status")
+async def update_badge_status(badge_id: int, request: BadgeStatusRequest, db: Session = Depends(get_db)):
+    """ Сменя статуса на бадж (напр. отбелязване на изгубен) """
+    badge = db.query(Badge).filter(Badge.id == badge_id).first()
+    if not badge:
+        raise HTTPException(status_code=404, detail="Баджът не съществува")
+    
+    if request.status not in ["active", "lost", "disabled"]:
+        raise HTTPException(status_code=400, detail="Невалиден статус")
+        
+    old_status = badge.status
+    badge.status = request.status
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_badge_status_updated",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"badge_id": badge_id, "old_status": old_status, "new_status": request.status}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True, "badge_id": badge.id, "status": badge.status}
+
+@app.post("/api/persons/{person_id}/status")
+async def update_person_status(person_id: int, request: PersonStatusRequest, db: Session = Depends(get_db)):
+    """ Активира или деактивира потребителски профил """
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Потребителят не съществува")
+        
+    person.active = request.active
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_person_status_updated",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"person_id": person_id, "active": request.active}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True, "person_id": person.id, "active": person.active}
+
+@app.delete("/api/persons/{person_id}")
+async def delete_person(person_id: int, db: Session = Depends(get_db)):
+    """ Изтрива изцяло потребителски профил (Право на забравяне / GDPR) """
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Потребителят не съществува")
+    
+    name = person.full_name
+    db.delete(person)
+    
+    # Логваме администраторското действие
+    sys_event = SystemEvent(
+        event_type="admin_person_deleted",
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"person_id": person_id, "name": name}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+    
+    return {"success": True}
+
+@app.get("/api/messages")
+async def get_all_messages(db: Session = Depends(get_db)):
+    """ Връща всички съобщения в системата """
+    messages = db.query(Message).all()
+    return [{
+        "id": m.id,
+        "sender_name": m.sender.full_name,
+        "recipient_name": m.recipient.full_name,
+        "text": m.text,
+        "valid_until": m.valid_until.isoformat(),
+        "delivered_at": m.delivered_at.isoformat() if m.delivered_at else None,
+        "status": m.status
+      } for m in messages]
 
 class VoiceCommandRequest(BaseModel):
     person_id: Optional[int] = None
