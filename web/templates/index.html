@@ -89,29 +89,102 @@
                 </div>
             </div>
 
-            <!-- Right Column: Face Management -->
+            <!-- Right Column: Interactive QR & Message HUD -->
             <div class="space-y-6">
-                <div class="cyber-bg cyber-border p-6 rounded-lg h-full">
-                    <h3 class="text-cyan-500 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900 pb-2">Face Management</h3>
+                <!-- QR HUD -->
+                <div class="cyber-bg cyber-border p-6 rounded-lg relative overflow-hidden" id="qr-hud-panel">
+                    <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl"></div>
+                    <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900/50 pb-2 flex justify-between items-center">
+                        <span>QR IDENTIFICATION HUD</span>
+                        <span class="h-2 w-2 rounded-full bg-cyan-400 animate-ping"></span>
+                    </h3>
                     
-                    <!-- Upload Form -->
-                    <div class="mb-6 space-y-4">
-                        <input type="text" id="face-name" placeholder="Име на лице" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-sm focus:border-cyan-500 outline-none">
-                        <div class="relative group">
-                            <input type="file" id="face-file" class="hidden">
-                            <label for="face-file" class="block w-full text-center border-2 border-dashed border-slate-700 py-4 cursor-pointer hover:border-cyan-500 transition-colors text-xs uppercase text-slate-500">
-                                Избери снимка
-                            </label>
-                        </div>
-                        <button onclick="uploadFace()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-bold rounded text-xs uppercase tracking-widest border border-cyan-900">
-                            Добави лице
-                        </button>
+                    <!-- HUD State: Idle -->
+                    <div id="hud-idle" class="py-12 text-center text-slate-500 space-y-3">
+                        <svg class="w-12 h-12 mx-auto text-slate-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0a8 8 0 11-16 0 8 8 0 0116 0z"></path></svg>
+                        <p class="text-xs uppercase tracking-widest text-slate-400">Очакване на сканиране...</p>
+                        <p class="text-[10px] text-slate-600">Покажете QR бадж пред камерата</p>
                     </div>
 
-                    <!-- Face List -->
-                    <h4 class="text-[10px] text-slate-500 uppercase mb-2 tracking-widest">Known Faces</h4>
-                    <div id="face-list" class="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        <!-- Items injected via JS -->
+                    <!-- HUD State: Detected -->
+                    <div id="hud-active" class="hidden space-y-4">
+                        <div class="flex items-center justify-between bg-cyan-950/20 p-3 border border-cyan-900/50 rounded">
+                            <div>
+                                <h4 class="text-lg font-bold text-white tracking-wide" id="hud-name">-</h4>
+                                <p class="text-[10px] uppercase text-cyan-400" id="hud-role-class">-</p>
+                            </div>
+                            <div class="px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded text-[10px] text-cyan-400 font-mono" id="hud-zone">-</div>
+                        </div>
+
+                        <!-- Welcome Speech Text -->
+                        <div class="bg-black/40 p-4 border border-slate-800 rounded relative">
+                            <p class="text-slate-300 text-sm font-sans" id="hud-message">"- приветствие -"</p>
+                            <button onclick="speakCurrentMsg()" class="absolute right-2 top-2 p-1 text-slate-500 hover:text-cyan-400 transition-colors" title="Повтори гласово">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                            </button>
+                        </div>
+
+                        <!-- Next Class -->
+                        <div id="hud-class-box" class="hidden bg-slate-900/50 border border-slate-800 p-3 rounded">
+                            <div class="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Следващ час:</div>
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <span class="font-semibold text-white text-sm" id="hud-class-subject">-</span>
+                                    <span class="text-xs text-slate-400 ml-2" id="hud-class-room">-</span>
+                                </div>
+                                <div class="text-xs text-cyan-500 font-mono" id="hud-class-time">-</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Virtual Mail Box -->
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900/50 pb-2">
+                        Остави съобщение (Virtual Mail)
+                    </h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-[9px] text-slate-500 uppercase tracking-widest block mb-1">Подател</label>
+                            <select id="msg-sender" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                                <option value="">Избери подател...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[9px] text-slate-500 uppercase tracking-widest block mb-1">Получател</label>
+                            <select id="msg-recipient" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                                <option value="">Избери получател...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[9px] text-slate-500 uppercase tracking-widest block mb-1">Текст на съобщението</label>
+                            <textarea id="msg-text" placeholder="Напишете съобщението тук..." rows="2" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none resize-none"></textarea>
+                        </div>
+                        <button onclick="submitMessage()" class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
+                            Изпрати съобщение
+                        </button>
+                    </div>
+                </div>
+
+                <!-- User Registration -->
+                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                    <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900/50 pb-2">
+                        Регистрирай потребител
+                    </h3>
+                    <div class="space-y-3">
+                        <input type="text" id="reg-name" placeholder="Име и фамилия" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                        <div class="grid grid-cols-2 gap-2">
+                            <select id="reg-role" onchange="toggleRegClass()" class="bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                                <option value="student">Ученик</option>
+                                <option value="teacher">Учител</option>
+                                <option value="admin">Администратор</option>
+                                <option value="guest">Гост</option>
+                            </select>
+                            <input type="text" id="reg-class" placeholder="Клас (напр. 9Б)" class="bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
+                        </div>
+                        <button onclick="registerPerson()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 font-bold rounded text-xs uppercase tracking-widest border border-cyan-900/50 transition-all">
+                            Добави потребител
+                        </button>
                     </div>
                 </div>
             </div>
@@ -121,6 +194,7 @@
     <script>
         let socket;
         let audioEnabled = false;
+        let lastSpeechMessage = "";
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
 
@@ -134,29 +208,39 @@
                 iconOn.classList.remove('hidden');
                 iconOff.classList.add('hidden');
                 btn.classList.add('bg-cyan-500/20');
-                logActivity('SYSTEM', 'Audio enabled (Browser policies bypassed)', 'text-cyan-400');
+                logActivity('SYSTEM', 'Аудио системата е активирана', 'text-cyan-400');
             } else {
                 iconOn.classList.add('hidden');
                 iconOff.classList.remove('hidden');
                 btn.classList.remove('bg-cyan-500/20');
-                logActivity('SYSTEM', 'Audio muted', 'text-slate-500');
+                logActivity('SYSTEM', 'Аудио системата е заглушена', 'text-slate-500');
             }
         }
 
-        function playAudio(url) {
-            if (!audioEnabled) return;
-            const audio = new Audio(url);
-            audio.play().catch(e => {
-                console.error('Audio playback failed:', e);
-                logActivity('ERROR', 'Audio blocked by browser. Click the speaker icon!', 'text-red-500');
-            });
+        function speakMessage(text) {
+            if (!audioEnabled || !text) return;
+            try {
+                // Използваме вградения в браузъра SpeechSynthesis за глас
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'bg-BG';
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            } catch (e) {
+                console.error('SpeechSynthesis failed:', e);
+            }
+        }
+
+        function speakCurrentMsg() {
+            if (lastSpeechMessage) {
+                speakMessage(lastSpeechMessage);
+            }
         }
 
         function connectWebSocket() {
             socket = new WebSocket(wsUrl);
 
             socket.onopen = () => {
-                logActivity('WebSocket', 'Connection established', 'text-cyan-400');
+                logActivity('WebSocket', 'Връзката със сървъра е отворена', 'text-cyan-400');
             };
 
             socket.onmessage = (event) => {
@@ -165,7 +249,7 @@
             };
 
             socket.onclose = () => {
-                logActivity('SYSTEM', 'WebSocket disconnected. Retrying...', 'text-red-500');
+                logActivity('SYSTEM', 'Връзката се разпадна. Повторен опит след 3 сек...', 'text-red-500');
                 setTimeout(connectWebSocket, 3000);
             };
 
@@ -185,19 +269,38 @@
                     updateUI(data);
                     logActivity('CONTROL', `System processing: ${data.is_processing ? 'ACTIVE' : 'PAUSED'}`, 'text-yellow-400');
                     break;
-                case 'recognition':
-                    document.getElementById('total-count').innerText = data.total;
-                    let nameDisplay = `Detected: ${data.name}`;
-                    if (data.image_url) {
-                        nameDisplay = `<a href="${data.image_url}" target="_blank" class="text-cyan-400 underline hover:text-cyan-300">Detected: ${data.name} (View Photo)</a>`;
-                        logActivity('RECOGNITION', nameDisplay, 'text-green-400', true);
+                case 'badge_detected':
+                    // Обновяваме брояча
+                    document.getElementById('total-count').innerText = parseInt(document.getElementById('total-count').innerText) + 1;
+                    
+                    // Показваме HUD панела
+                    document.getElementById('hud-idle').classList.add('hidden');
+                    document.getElementById('hud-active').classList.remove('hidden');
+                    
+                    // Попълваме данните
+                    document.getElementById('hud-name').innerText = data.name;
+                    document.getElementById('hud-role-class').innerText = `${data.role.toUpperCase()} ${data.class_name ? '- ' + data.class_name : ''}`;
+                    document.getElementById('hud-zone').innerText = data.zone_id || 'MAIN';
+                    document.getElementById('hud-message').innerText = data.message;
+                    
+                    lastSpeechMessage = data.message;
+                    
+                    // Показваме следващия час
+                    const classBox = document.getElementById('hud-class-box');
+                    if (data.next_class) {
+                        classBox.classList.remove('hidden');
+                        document.getElementById('hud-class-subject').innerText = data.next_class.subject;
+                        document.getElementById('hud-class-room').innerText = data.next_class.room;
+                        document.getElementById('hud-class-time').innerText = `${data.next_class.start_time} - ${data.next_class.end_time}`;
                     } else {
-                        logActivity('RECOGNITION', nameDisplay, 'text-green-400');
+                        classBox.classList.add('hidden');
                     }
+                    
+                    logActivity('QR SCAN', `Засечен: ${data.name} (${data.role})`, 'text-green-400');
+                    speakMessage(data.message);
                     break;
-                case 'speech':
-                    logActivity('AUDIO', 'Playing voice message...', 'text-pink-400');
-                    playAudio(data.url);
+                case 'unknown_badge':
+                    logActivity('WARNING', `Непознат бадж е засечен на камера ${data.camera_id}!`, 'text-red-500 animate-pulse');
                     break;
             }
         }
@@ -221,15 +324,11 @@
             }
         }
 
-        function logActivity(source, message, colorClass, isHtml = false) {
+        function logActivity(source, message, colorClass) {
             const log = document.getElementById('activity-log');
             const time = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
-            if (isHtml) {
-                entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
-            } else {
-                entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
-            }
+            entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
             log.prepend(entry);
         }
 
@@ -239,56 +338,125 @@
             } catch (e) { console.error(e); }
         }
 
-        async function loadFaces() {
+        async function loadPersons() {
             try {
-                const res = await fetch('/api/faces');
-                const faces = await res.json();
-                const list = document.getElementById('face-list');
-                list.innerHTML = '';
-                faces.forEach(name => {
-                    const div = document.createElement('div');
-                    div.className = 'flex items-center justify-between p-2 bg-black/20 border border-slate-800 rounded text-sm group hover:border-cyan-500/50 transition-colors';
-                    div.innerHTML = `
-                        <span class="text-slate-300">${name}</span>
-                        <span class="text-[10px] text-cyan-600 font-mono">ENCODED</span>
-                    `;
-                    list.appendChild(div);
+                const res = await fetch('/api/persons');
+                const persons = await res.json();
+                
+                const senderSelect = document.getElementById('msg-sender');
+                const recipientSelect = document.getElementById('msg-recipient');
+                
+                // Изчистваме старите опции (запазвайки първата)
+                senderSelect.innerHTML = '<option value="">Избери подател...</option>';
+                recipientSelect.innerHTML = '<option value="">Избери получател...</option>';
+                
+                persons.forEach(p => {
+                    const optionText = `${p.full_name} (${p.role}${p.class_name ? ' - ' + p.class_name : ''})`;
+                    const opt1 = new Option(optionText, p.id);
+                    const opt2 = new Option(optionText, p.id);
+                    senderSelect.add(opt1);
+                    recipientSelect.add(opt2);
                 });
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('Failed to load persons:', e); }
         }
 
-        async function uploadFace() {
-            const name = document.getElementById('face-name').value;
-            const fileInput = document.getElementById('face-file');
+        async function submitMessage() {
+            const senderId = document.getElementById('msg-sender').value;
+            const recipientId = document.getElementById('msg-recipient').value;
+            const text = document.getElementById('msg-text').value;
             
-            if (!name || !fileInput.files[0]) {
-                alert('Моля въведете име и изберете файл!');
+            if (!senderId || !recipientId || !text.strip()) {
+                alert('Моля попълнете всички полета за съобщението!');
+                return;
+            }
+            
+            if (senderId === recipientId) {
+                alert('Подателят и получателят не могат да бъдат едно и също лице!');
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+            const payload = {
+                sender_id: parseInt(senderId),
+                recipient_id: parseInt(recipientId),
+                text: text,
+                valid_hours: 24
+            };
 
             try {
-                const res = await fetch(`/api/upload?name=${encodeURIComponent(name)}`, {
+                const res = await fetch('/api/messages', {
                     method: 'POST',
-                    body: formData
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
                 const result = await res.json();
                 if (result.success) {
-                    document.getElementById('face-name').value = '';
-                    fileInput.value = '';
-                    loadFaces();
-                    logActivity('SYSTEM', `Uploaded new face for: ${name}`, 'text-cyan-400');
+                    document.getElementById('msg-text').value = '';
+                    logActivity('SYSTEM', 'Съобщението е изпратено успешно', 'text-cyan-400');
+                    alert('Съобщението е записано в системата!');
                 } else {
                     alert('Грешка: ' + result.message);
                 }
             } catch (e) { console.error(e); }
         }
 
+        async function registerPerson() {
+            const name = document.getElementById('reg-name').value;
+            const role = document.getElementById('reg-role').value;
+            const className = document.getElementById('reg-class').value;
+            
+            if (!name.strip()) {
+                alert('Моля въведете име!');
+                return;
+            }
+
+            const payload = {
+                full_name: name,
+                role: role,
+                class_name: role === 'student' ? className : null
+            };
+
+            try {
+                const res = await fetch('/api/persons', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    document.getElementById('reg-name').value = '';
+                    document.getElementById('reg-class').value = '';
+                    logActivity('SYSTEM', `Регистриран потребител: ${name}`, 'text-cyan-400');
+                    alert('Потребителят е регистриран успешно!');
+                    loadPersons(); // Презареждаме списъка за писмата
+                } else {
+                    alert('Грешка при регистрация.');
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function toggleRegClass() {
+            const role = document.getElementById('reg-role').value;
+            const classInput = document.getElementById('reg-class');
+            if (role === 'student') {
+                classInput.disabled = false;
+                classInput.placeholder = "Клас (напр. 9Б)";
+                classInput.className = "bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none";
+            } else {
+                classInput.disabled = true;
+                classInput.placeholder = "Неприложимо";
+                classInput.value = "";
+                classInput.className = "bg-slate-900 border border-slate-800 p-2 rounded text-xs text-slate-600 outline-none cursor-not-allowed";
+            }
+        }
+
+        // Помощна функция за премахване на празни пространства
+        String.prototype.strip = function() {
+            return this.replace(/^\s+|\s+$/g, '');
+        };
+
         // Initialize
         connectWebSocket();
-        loadFaces();
+        loadPersons();
     </script>
 </body>
 </html>
