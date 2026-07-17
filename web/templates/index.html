@@ -23,9 +23,28 @@
         .glow-text {
             text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
         }
+        .glow-text-cyan {
+            text-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
+        }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #0891b2; border-radius: 10px; }
+        
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .animate-scan {
+            animation: scan 6s linear infinite;
+        }
+        @keyframes spin-slow {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+            animation: spin-slow 12s linear infinite;
+        }
     </style>
 </head>
 <body class="min-h-screen p-4 md:p-8">
@@ -50,10 +69,34 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <!-- Left Column: Video Feed & Logs -->
             <div class="lg:col-span-2 space-y-6">
-                <div class="cyber-border rounded-lg overflow-hidden relative">
-                    <img src="/video_feed" alt="Video Stream" class="w-full h-auto bg-black">
-                    <div class="absolute top-4 left-4 bg-black/60 px-3 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30">
-                        LIVE_FEED // 1920x1080
+                <div class="cyber-border rounded-lg overflow-hidden relative w-full aspect-video bg-slate-950 flex flex-col items-center justify-center select-none">
+                    <!-- Grid pattern -->
+                    <div class="absolute inset-0 bg-[linear-gradient(to_right,#083344_1px,transparent_1px),linear-gradient(to_bottom,#083344_1px,transparent_1px)] bg-[size:40px_40px] opacity-30"></div>
+                    
+                    <!-- Scanning laser -->
+                    <div class="absolute left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-400 to-transparent shadow-[0_0_10px_#00f2ff] animate-scan"></div>
+                    
+                    <!-- Scanner target/crosshair -->
+                    <div class="absolute w-28 h-28 border border-cyan-500/20 rounded-full flex items-center justify-center">
+                        <div class="w-20 h-20 border border-dashed border-cyan-400/30 rounded-full animate-spin-slow flex items-center justify-center">
+                            <div class="w-4 h-4 bg-cyan-500/80 rounded-full animate-ping"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- HUD details -->
+                    <div class="absolute bottom-4 left-4 font-mono text-[10px] text-cyan-600/80 space-y-1">
+                        <div>SYS_STATUS: ACTIVE // DISTRIBUTED_NODES</div>
+                        <div>NODES: CAM-ENTRANCE-01, CAM-TEACHERS-01</div>
+                    </div>
+                    <div class="absolute top-4 right-4 font-mono text-[10px] text-cyan-600/80">
+                        SCANNER: READY
+                    </div>
+                    <div class="absolute top-4 left-4 bg-black/60 px-3 py-1 text-xs font-mono text-cyan-400 border border-cyan-500/30 tracking-wider">
+                        HUD_MONITOR // ACTIVE
+                    </div>
+                    
+                    <div class="text-cyan-400/60 uppercase tracking-widest text-sm font-semibold glow-text-cyan mt-12 z-10">
+                        Очакване на събития от камерите...
                     </div>
                 </div>
 
@@ -195,8 +238,44 @@
         let socket;
         let audioEnabled = false;
         let lastSpeechMessage = "";
+        let sessionTimeout;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        function resetHUDToIdle() {
+            document.getElementById('hud-idle').classList.remove('hidden');
+            document.getElementById('hud-active').classList.add('hidden');
+            document.getElementById('hud-name').innerText = '-';
+            document.getElementById('hud-role-class').innerText = '-';
+            document.getElementById('hud-message').innerText = '"- приветствие -"';
+            document.getElementById('hud-class-box').classList.add('hidden');
+            lastSpeechMessage = "";
+            logActivity('SYSTEM', 'Сесията приключи (kiosk idle)', 'text-slate-500');
+        }
+
+        function startSessionTimer() {
+            clearTimeout(sessionTimeout);
+            sessionTimeout = setTimeout(() => {
+                const zone = document.getElementById('hud-zone').innerText;
+                if (!zone || zone === '-') return;
+                
+                // Изпращаме заявка към сървъра да затвори сесията
+                fetch('/api/sessions/close', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ zone_id: zone })
+                }).then(res => res.json())
+                  .then(resData => {
+                      if (!resData.success) {
+                          resetHUDToIdle();
+                      }
+                  })
+                  .catch(e => {
+                      console.error(e);
+                      resetHUDToIdle();
+                  });
+            }, 60000); // 60 секунди
+        }
 
         function toggleAudio() {
             audioEnabled = !audioEnabled;
@@ -298,9 +377,13 @@
                     
                     logActivity('QR SCAN', `Засечен: ${data.name} (${data.role})`, 'text-green-400');
                     speakMessage(data.message);
+                    startSessionTimer(); // Нулиране на таймера за активност
                     break;
                 case 'unknown_badge':
                     logActivity('WARNING', `Непознат бадж е засечен на камера ${data.camera_id}!`, 'text-red-500 animate-pulse');
+                    break;
+                case 'session_closed':
+                    resetHUDToIdle();
                     break;
             }
         }
@@ -393,6 +476,7 @@
                     document.getElementById('msg-text').value = '';
                     logActivity('SYSTEM', 'Съобщението е изпратено успешно', 'text-cyan-400');
                     alert('Съобщението е записано в системата!');
+                    startSessionTimer(); // Удължаваме сесията на интерактивната точка
                 } else {
                     alert('Грешка: ' + result.message);
                 }

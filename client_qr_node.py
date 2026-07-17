@@ -80,6 +80,7 @@ def main():
     detected_badges = {}  # {badge_token: last_detection_timestamp}
     
     last_person_id = None
+    last_detection_time = 0
     
     print("\nИнструкции:")
     print(" -> Покажете QR бадж пред камерата.")
@@ -101,6 +102,11 @@ def main():
         data, bbox, _ = detector.detectAndDecode(frame)
         
         current_time = time.time()
+        
+        # Автоматично затваряне на сесията след 60 секунди бездействие на този клиент
+        if last_person_id and (current_time - last_detection_time > 60.0):
+            print("[Сесия] Сесията изтече поради бездействие. Потребителят е отписан.")
+            last_person_id = None
         
         # Рисуваме кутия около QR кода, ако е намерен
         if bbox is not None and len(bbox) > 0:
@@ -135,9 +141,15 @@ def main():
                             if res_data.get("status") == "success":
                                 welcome_msg = res_data.get("message")
                                 last_person_id = res_data["person"]["id"]
+                                last_detection_time = current_time  # Запомняме времето на последно засичане
                                 print(f"[Сървър] Разпознат: {res_data['person']['name']}")
                                 print(f"[Приветствие] {welcome_msg}")
                                 speak_message(welcome_msg)
+                            elif res_data.get("status") == "ignored":
+                                reason = res_data.get("reason")
+                                if reason == "kiosk_busy":
+                                    print(f"[Сървър] Точката за засичане е заделена за друг потребител в момента.")
+                                # При дублирани засичания (cooldown) не правим нищо и сме тихи
                             else:
                                 print(f"[Сървър] Грешка: {res_data.get('message')}")
                                 speak_message(res_data.get("message"))
@@ -158,6 +170,7 @@ def main():
         # Заявка за въвеждане на текст (в конзолата)
         # Тъй като cv2.waitKey е неблокиращ, можем да проверим дали потребителят е натиснал интервал в прозореца на камерата
         if key == ord(' '):
+            last_detection_time = time.time()  # Удължаваме сесията на клиента при натискане на Space
             print("\n" + "="*30)
             print(" РЕЖИМ ГЛАСОВА/ТЕКСТОВА КОМАНДА")
             print("="*30)

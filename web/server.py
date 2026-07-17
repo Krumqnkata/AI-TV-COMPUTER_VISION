@@ -81,6 +81,10 @@ class BadgeStatusRequest(BaseModel):
 class PersonStatusRequest(BaseModel):
     active: bool
 
+class CloseSessionRequest(BaseModel):
+    zone_id: Optional[str] = None
+    interaction_point_id: Optional[int] = None
+
 # Уверяваме се, че директориите за кеш съществуват преди да ги монтираме
 os.makedirs("data/audio_cache", exist_ok=True)
 os.makedirs("data/history_cache", exist_ok=True)
@@ -92,6 +96,10 @@ templates = Jinja2Templates(directory="web/templates")
 # Глобална референция към StateManager и FaceManager
 state_manager = None
 face_manager = None
+
+# Глобални структури за управление на сесии и дублирани засичания
+recent_detections = {}  # {token: {"camera_id": str, "timestamp": datetime, "confidence": float}}
+active_sessions = {}    # {session_key: {"person_id": int, "last_activity": datetime}}
 
 
 class ConnectionManager:
@@ -116,21 +124,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-def get_video_stream():
-    """ Генератор за M-JPEG стрийминг """
-    if state_manager:
-        state_manager.increment_active_streams()
-    try:
-        while True:
-            if state_manager:
-                frame = state_manager.get_latest_frame()
-                if frame:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            time.sleep(0.07) # Ограничаваме до ~14 FPS за пестене на трафик
-    finally:
-        if state_manager:
-            state_manager.decrement_active_streams()
+# get_video_stream generator removed since video streaming is handled locally by nodes
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -178,10 +172,6 @@ async def get_visual_history():
     files.sort(key=lambda x: x["time"], reverse=True)
     return files[:40]
 
-@app.get("/video_feed")
-async def video_feed():
-    return StreamingResponse(get_video_stream(), media_type="multipart/x-mixed-replace; boundary=frame")
-
 @app.get("/api/stats")
 async def get_stats():
     if state_manager:
@@ -196,31 +186,6 @@ async def toggle_processing():
         return {"success": True, "is_processing": not current}
     return {"success": False}
 
-@app.get("/api/faces")
-async def list_faces():
-    """ Връща списък с всички познати лица (папки) """
-    if face_manager:
-        faces_dir = face_manager.faces_path
-        if os.path.exists(faces_dir):
-            return [d for d in os.listdir(faces_dir) if os.path.isdir(os.path.join(faces_dir, d))]
-    return []
-
-@app.post("/api/upload")
-async def upload_face(name: str, file: UploadFile = File(...)):
-    """ Качване на нова снимка за лице """
-    if face_manager:
-        person_path = os.path.join(face_manager.faces_path, name)
-        os.makedirs(person_path, exist_ok=True)
-        
-        file_path = os.path.join(person_path, file.filename)
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-        
-        face_manager.load_faces()
-        return {"success": True, "message": f"Uploaded {file.filename} for {name}"}
-    return {"success": False, "message": "Face manager not initialized"}
-
 
 # ==========================================
 # НОВИ API АДРЕСИ ЗА QR СИСТЕМАТА (ЕТАП 3)
@@ -234,6 +199,33 @@ async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
     """
     token = request.badge_token
     hashed = hash_token(token)
+    now = datetime.now()
+
+    # 1. Защита от дублирани засичания (Deduplication)
+    # Почистваме остарели засичания от паметта (над 30 секунди)
+    expired_tokens = [t for t, info in recent_detections.items() if (now - info["timestamp"]).total_seconds() > 30]
+    for t in expired_tokens:
+        recent_detections.pop(t, None)
+
+    prev_det = recent_detections.get(token)
+    if prev_det:
+        time_diff = (now - prev_det["timestamp"]).total_seconds()
+        if prev_det["camera_id"] == request.camera_id:
+            if time_diff < 10.0:
+                return {
+                    "status": "ignored",
+                    "reason": "duplicate_same_camera",
+                    "message": "Засичането е игнорирано (cooldown за същата камера)"
+                }
+        else:
+            if time_diff < 5.0:
+                # Ако качеството е по-ниско или равно, игнорираме
+                if (request.confidence or 1.0) <= prev_det["confidence"]:
+                    return {
+                        "status": "ignored",
+                        "reason": "duplicate_other_camera_lower_confidence",
+                        "message": "Засичането е игнорирано (по-ниско качество от друга камера)"
+                    }
     
     # Търсим бадж
     badge = db.query(Badge).filter(Badge.token_hash == hashed, Badge.status == "active").first()
@@ -270,8 +262,43 @@ async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
     if not person.active:
         raise HTTPException(status_code=400, detail="Профилът на потребителя е деактивиран")
         
+    # Намираме ID на камерата и точката за лога
+    camera = db.query(Camera).filter(Camera.name == request.camera_id).first()
+    camera_id_db = camera.id if camera else None
+    ip_point_id = camera.interaction_point_id if camera else None
+
+    # 2. Управление на активна сесия
+    session_key = ip_point_id or request.zone_id
+    active_session = active_sessions.get(session_key)
+    if active_session:
+        session_person_id = active_session["person_id"]
+        last_act = active_session["last_activity"]
+        if (now - last_act).total_seconds() < 60.0:
+            if session_person_id != person.id:
+                # Точката е заета от друг потребител
+                return {
+                    "status": "ignored",
+                    "reason": "kiosk_busy",
+                    "message": "Точката за засичане е заделена за друг потребител в момента."
+                }
+            else:
+                # Удължаваме сесията на същия потребител
+                active_session["last_activity"] = now
+        else:
+            # Сесията е изтекла -> започваме нова
+            active_sessions[session_key] = {"person_id": person.id, "last_activity": now}
+    else:
+        # Няма активна сесия -> започваме нова
+        active_sessions[session_key] = {"person_id": person.id, "last_activity": now}
+
+    # Записваме новото засичане в историята
+    recent_detections[token] = {
+        "camera_id": request.camera_id,
+        "timestamp": now,
+        "confidence": request.confidence or 1.0
+    }
+
     # Намираме активните съобщения за този потребител
-    now = datetime.now()
     pending_messages = db.query(Message).filter(
         Message.recipient_id == person.id,
         Message.status == "active",
@@ -330,11 +357,6 @@ async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
             
     welcome_msg = f"{greeting} {messages_str} {next_class_str}".strip()
     
-    # Намираме ID на камерата и точката за лога
-    camera = db.query(Camera).filter(Camera.name == request.camera_id).first()
-    camera_id_db = camera.id if camera else None
-    ip_point_id = camera.interaction_point_id if camera else None
-    
     # Логваме събитието в базата данни
     sys_event = SystemEvent(
         event_type="badge_detected",
@@ -380,6 +402,38 @@ async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
         "messages_delivered": delivered_texts,
         "next_class": next_class_info
     }
+
+@app.post("/api/sessions/close")
+async def close_session(request: CloseSessionRequest):
+    """
+    Затваряне на активна сесия на определена интерактивна точка/зона
+    """
+    session_key = request.interaction_point_id or request.zone_id
+    closed = False
+    
+    if session_key in active_sessions:
+        active_sessions.pop(session_key)
+        closed = True
+    else:
+        for k in list(active_sessions.keys()):
+            if str(k) == str(session_key):
+                active_sessions.pop(k)
+                closed = True
+                break
+                
+    if closed:
+        # Излъчваме събитие по WebSocket за връщане на екрана в Idle
+        ws_payload = {
+            "type": "session_closed",
+            "data": {
+                "zone_id": request.zone_id,
+                "interaction_point_id": request.interaction_point_id
+            }
+        }
+        await manager.broadcast(json.dumps(ws_payload, ensure_ascii=False))
+        return {"success": True, "message": "Сесията е затворена успешно"}
+        
+    return {"success": False, "message": "Не е намерена активна сесия"}
 
 @app.post("/api/messages")
 async def create_message(request: MessageCreateRequest, db: Session = Depends(get_db)):
@@ -911,6 +965,71 @@ def parse_intent_rule_based(query: str) -> dict:
     }
 
 
+def find_person_by_name(name_str: str, db: Session) -> tuple:
+    """
+    Търси потребител по име в базата данни.
+    Връща (recipient, match_status, message)
+    match_status може да бъде: 'exact', 'multiple', 'none'
+    """
+    clean_name = name_str.lower().strip()
+    # Премахваме титли
+    for title in ["г-н", "г-за", "г-жа", "господин", "госпожа", "учител", "учителка"]:
+        clean_name = clean_name.replace(title, "").strip()
+        
+    query_words = [w for w in re.split(r'\s+', clean_name) if len(w) > 0]
+    if not query_words:
+        return None, "none", "Моля посочете валидно име на получател."
+
+    candidates = db.query(Person).filter(Person.active == True).all()
+    matches = []
+    
+    for cand in candidates:
+        cand_name_lower = cand.full_name.lower()
+        cand_words = [w for w in re.split(r'\s+', cand_name_lower) if len(w) > 0]
+        
+        # Проверяваме дали всяка дума от търсенето съвпада с някоя дума от името на кандидата
+        # Съвпадението може да бъде пълно или като префикс (за съкращения като М. Димитрова)
+        all_words_matched = True
+        for qw in query_words:
+            word_matched = False
+            for cw in cand_words:
+                qw_clean = qw.rstrip('.')
+                cw_clean = cw.rstrip('.')
+                if qw_clean == cw_clean or (len(qw_clean) >= 2 and cw_clean.startswith(qw_clean)):
+                    word_matched = True
+                    break
+            if not word_matched:
+                all_words_matched = False
+                break
+                
+        if all_words_matched:
+            matches.append(cand)
+            
+    # Фолбек: ако няма съвпадения с префикси, опитваме просто търсене на подниз
+    if not matches:
+        for cand in candidates:
+            if clean_name in cand.full_name.lower():
+                matches.append(cand)
+                
+    if not matches:
+        return None, "none", f"Не успях да намеря потребител с име '{name_str}' в базата данни."
+        
+    if len(matches) > 1:
+        # Формираме списък с имена за уточнение
+        names_list = []
+        for m in matches:
+            details = f"{m.full_name}"
+            if m.role == "student" and m.class_name:
+                details += f" ({m.class_name})"
+            elif m.role == "teacher":
+                details += " (учител)"
+            names_list.append(details)
+        names_str = " или ".join(names_list)
+        return None, "multiple", f"Намерих няколко съвпадения: {names_str}. За кой от тях се отнася?"
+        
+    return matches[0], "exact", ""
+
+
 @app.post("/api/voice_command")
 async def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_db)):
     """
@@ -918,6 +1037,14 @@ async def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_
     Приема текстова заявка (или Whisper изход) и разпознава намеренията (Intent).
     """
     query = request.text_query.lower().strip()
+    
+    # Удължаване на активната сесия при взаимодействие
+    if request.person_id:
+        now = datetime.now()
+        for session_key, session_info in active_sessions.items():
+            if session_info["person_id"] == request.person_id:
+                if (now - session_info["last_activity"]).total_seconds() < 60.0:
+                    session_info["last_activity"] = now
     
     # 1. Защита срещу неподходящи заявки
     inappropriate_keywords = [
@@ -1003,19 +1130,7 @@ async def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_
             elif not message_text:
                 response_text = f"Какво съобщение искате да оставите за {recipient_name}?"
             else:
-                # Търсим получателя в базата
-                clean_name = recipient_name.lower()
-                for title in ["г-н", "г-за", "г-жа", "господин", "госпожа", "учител", "учителка"]:
-                    clean_name = clean_name.replace(title, "").strip()
-                
-                candidates = db.query(Person).filter(Person.active == True).all()
-                recipient = None
-                for candidate in candidates:
-                    cand_name_lower = candidate.full_name.lower()
-                    if clean_name in cand_name_lower or cand_name_lower in clean_name:
-                        recipient = candidate
-                        break
-                
+                recipient, status, err_msg = find_person_by_name(recipient_name, db)
                 if recipient:
                     from datetime import timedelta
                     valid_until = datetime.now() + timedelta(hours=24)
@@ -1043,7 +1158,7 @@ async def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_
                     
                     response_text = f"Записах съобщението за {recipient.full_name}: '{message_text}'."
                 else:
-                    response_text = f"Не успях да намеря потребител с име {recipient_name} в базата данни."
+                    response_text = err_msg
 
     elif intent == "check_messages":
         if not request.person_id:

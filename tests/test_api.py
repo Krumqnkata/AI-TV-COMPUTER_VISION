@@ -8,7 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from fastapi.testclient import TestClient
 from web.server import app, get_db, SessionLocal
-from engine.db import init_db, seed_db, Person, Badge, Message, Timetable
+from engine.db import init_db, seed_db, Person, Badge, Message, Timetable, Event, SystemEvent
 
 
 class TestSchoolAIAPI(unittest.TestCase):
@@ -23,6 +23,28 @@ class TestSchoolAIAPI(unittest.TestCase):
         
         cls.db = SessionLocal()
         seed_db(cls.db)
+        
+        # Обновяваме датите на разписанието, събитията и валидността на съобщенията към днешна дата,
+        # за да може тестовете да минават успешно независимо от текущата дата.
+        from datetime import timedelta, date as date_type
+        today = date_type.today()
+        now = datetime.now()
+        
+        # 1. Обновяваме разписанието за днес
+        for t in cls.db.query(Timetable).all():
+            t.date = today
+        
+        # 2. Обновяваме събитията за днес
+        for e in cls.db.query(Event).all():
+            # Заменяме датата с днешна, запазвайки часа
+            e.start_time = datetime.combine(today, e.start_time.time())
+            e.end_time = datetime.combine(today, e.end_time.time())
+            
+        # 3. Обновяваме съобщенията да са валидни
+        for m in cls.db.query(Message).all():
+            m.valid_until = now + timedelta(days=1)
+            
+        cls.db.commit()
         cls.client = TestClient(app)
 
     @classmethod
@@ -107,8 +129,9 @@ class TestSchoolAIAPI(unittest.TestCase):
         """ Тест за взимане на училищно разписание """
         anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
         
-        # Проверяваме разписанието за 10 Юли 2026г. ( seeded дата )
-        response = self.client.get(f"/api/persons/{anton.id}/timetable?date_str=2026-07-10")
+        # Проверяваме разписанието за днешна дата (seeded динамична дата)
+        today_str = date.today().strftime("%Y-%m-%d")
+        response = self.client.get(f"/api/persons/{anton.id}/timetable?date_str={today_str}")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         
@@ -267,8 +290,12 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertGreater(len(res.json()), 0)
         
-        anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
-        res_gen = self.client.post(f"/api/persons/{anton.id}/badge")
+        # Създаваме нов тестов потребител, за да не деактивираме основния бадж на Антон
+        test_person = Person(full_name="Тестов Бадж Потребител", role="student", class_name="9Б", active=True)
+        self.db.add(test_person)
+        self.db.commit()
+        
+        res_gen = self.client.post(f"/api/persons/{test_person.id}/badge")
         self.assertEqual(res_gen.status_code, 200)
         data = res_gen.json()
         self.assertTrue(data["success"])
@@ -296,6 +323,100 @@ class TestSchoolAIAPI(unittest.TestCase):
         res = self.client.get("/api/messages")
         self.assertEqual(res.status_code, 200)
         self.assertGreater(len(res.json()), 0)
+
+    def test_18_duplicate_detection(self):
+        """ Тест за филтриране на дублирани засичания от същата камера (cooldown) """
+        # Първо засичане на Георги
+        payload = {
+            "camera_id": "CAM-LOBBY-01",
+            "zone_id": "LOBBY",
+            "badge_token": "SCH-9A2C3B4D",
+            "confidence": 1.0
+        }
+        res1 = self.client.post("/api/detect_qr", json=payload)
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json()["status"], "success")
+
+        # Второ засичане веднага след това от същата камера
+        res2 = self.client.post("/api/detect_qr", json=payload)
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(res2.json()["status"], "ignored")
+        self.assertEqual(res2.json()["reason"], "duplicate_same_camera")
+
+    def test_19_session_control(self):
+        """ Тест за управление на сесии и заключване на интерактивна точка """
+        # Инициализираме сесия за Антон на точка MAIN_ENTRANCE
+        payload_anton = {
+            "camera_id": "CAM-ENTRANCE-01",
+            "zone_id": "MAIN_ENTRANCE",
+            "badge_token": "SCH-8F3A92C1",
+            "confidence": 1.0
+        }
+        res_anton = self.client.post("/api/detect_qr", json=payload_anton)
+        self.assertEqual(res_anton.status_code, 200)
+        # Може да е success или ignored (ако предходен тест е заел точката, но setUpClass прави чиста БД)
+        self.assertIn(res_anton.json()["status"], ["success", "ignored"])
+
+        # Опит за засичане на Мария на същата точка докато сесията е активна (Мария не е сканирана наскоро)
+        payload_maria = {
+            "camera_id": "CAM-ENTRANCE-01",
+            "zone_id": "MAIN_ENTRANCE",
+            "badge_token": "SCH-7E1B2C3A",
+            "confidence": 1.0
+        }
+        res_maria = self.client.post("/api/detect_qr", json=payload_maria)
+        self.assertEqual(res_maria.status_code, 200)
+        self.assertEqual(res_maria.json()["status"], "ignored")
+        self.assertEqual(res_maria.json()["reason"], "kiosk_busy")
+
+        # Затваряме сесията ръчно
+        close_res = self.client.post("/api/sessions/close", json={"zone_id": "MAIN_ENTRANCE"})
+        self.assertEqual(close_res.status_code, 200)
+        self.assertTrue(close_res.json()["success"])
+
+        # Отново опитваме да засечем Мария - вече трябва да е успешен
+        res_maria_new = self.client.post("/api/detect_qr", json=payload_maria)
+        self.assertEqual(res_maria_new.status_code, 200)
+        self.assertEqual(res_maria_new.json()["status"], "success")
+
+    def test_20_smart_name_matching(self):
+        """ Тест за интелигентно и частично търсене на имена и двусмислия """
+        anton = self.db.query(Person).filter(Person.full_name == "Антон Иванов").first()
+        
+        # 1. Търсене с титла и фамилия: "г-жа Димитрова" (трябва да намери Мария Димитрова)
+        payload = {
+            "person_id": anton.id,
+            "text_query": "Остави съобщение на г-жа Димитрова, че съм готов."
+        }
+        res = self.client.post("/api/voice_command", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["intent"], "leave_message")
+        self.assertIn("Записах съобщението за Мария Димитрова", res.json()["response"])
+
+        # 2. Търсене с инициали/префикси: "А. Ивано" (трябва да намери Антон Иванов)
+        georgi = self.db.query(Person).filter(Person.full_name == "Георги Петров").first()
+        payload = {
+            "person_id": georgi.id,
+            "text_query": "Кажи на Ант. Ивано, че идвам."
+        }
+        res = self.client.post("/api/voice_command", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["intent"], "leave_message")
+        self.assertIn("Записах съобщението за Антон Иванов", res.json()["response"])
+
+        # 3. Тест за дублиране на имена (двусмислица)
+        # Добавяме още един Антон в базата
+        another_anton = Person(full_name="Антон Димитров", role="student", class_name="10А", active=True)
+        self.db.add(another_anton)
+        self.db.commit()
+
+        payload = {
+            "person_id": georgi.id,
+            "text_query": "Остави съобщение за Антон, че проектът е супер."
+        }
+        res = self.client.post("/api/voice_command", json=payload)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("Намерих няколко съвпадения: Антон Иванов (9Б) или Антон Димитров (10А)", res.json()["response"])
 
 
 if __name__ == "__main__":
