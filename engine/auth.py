@@ -38,10 +38,15 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode a JWT token and return its payload. Returns None if invalid or expired."""
     secret_key = os.getenv("JWT_SECRET_KEY", "change_this_secret")
     algorithm = os.getenv("JWT_ALGORITHM", "HS256")
+    print(f"[JWT DECODE] secret_key length: {len(secret_key)}, algorithm: {algorithm}")
+    print(f"[JWT DECODE] token: {token[:50]}...")
     try:
         payload = jwt.decode(token, secret_key, algorithms=[algorithm])
+        print(f"[JWT DECODE] SUCCESS - payload: {payload}")
         return payload
     except jwt.ExpiredSignatureError:
+        print(f"[JWT DECODE] EXPIRED")
         return None
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        print(f"[JWT DECODE] INVALID - {str(e)}")
         return None

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Test - Debug Console</title>
+    <style>
+        body { font-family: monospace; background: #0a0a0a; color: #00ff00; padding: 20px; }
+        .log { margin: 5px 0; }
+        .error { color: #ff0000; }
+        .success { color: #00ff00; }
+        .warn { color: #ffff00; }
+        input { background: #1a1a1a; color: #00ff00; border: 1px solid #00ff00; padding: 5px; margin: 5px 0; width: 200px; }
+        button { background: #00ff00; color: #000; padding: 10px 20px; border: none; cursor: pointer; }
+        button:hover { background: #00dd00; }
+    </style>
+</head>
+<body>
+    <h2>Admin Login Test - Debug Console</h2>
+    
+    <div>
+        <h3>Quick Test:</h3>
+        <input type="text" id="test-user" placeholder="Username" value="Admin User">
+        <input type="password" id="test-pass" placeholder="Password" value="admin123">
+        <button onclick="testLogin()">Test Login</button>
+    </div>
+
+    <h3>Console Output:</h3>
+    <div id="output" style="border: 1px solid #00ff00; padding: 10px; height: 400px; overflow-y: auto;"></div>
+
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = 'log';
+            if (type === 'error') div.className += ' error';
+            if (type === 'success') div.className += ' success';
+            if (type === 'warn') div.className += ' warn';
+            div.textContent = `[${time}] ${msg}`;
+            output.appendChild(div);
+            output.scrollTop = output.scrollHeight;
+            console.log(`[${type}] ${msg}`);
+        }
+
+        // Test 1: Check fetch availability
+        log('Testing fetch API...', 'info');
+        if (typeof fetch === 'undefined') {
+            log('ERROR: fetch is not defined!', 'error');
+        } else {
+            log('OK: fetch is available', 'success');
+        }
+
+        // Test 2: Check document.cookie
+        log('Testing cookie access...', 'info');
+        try {
+            const cookies = document.cookie;
+            log(`OK: Cookies accessible (${cookies.length} chars)`, 'success');
+        } catch(e) {
+            log(`ERROR: ${e.message}`, 'error');
+        }
+
+        // Test 3: Check sessionStorage
+        log('Testing sessionStorage...', 'info');
+        try {
+            sessionStorage.setItem('test', 'value');
+            const val = sessionStorage.getItem('test');
+            sessionStorage.removeItem('test');
+            log('OK: sessionStorage works', 'success');
+        } catch(e) {
+            log(`ERROR: ${e.message}`, 'error');
+        }
+
+        // Test login
+        async function testLogin() {
+            const user = document.getElementById('test-user').value;
+            const pass = document.getElementById('test-pass').value;
+
+            if (!user || !pass) {
+                log('ERROR: Enter username and password', 'error');
+                return;
+            }
+
+            log(`Attempting login for: ${user}`, 'warn');
+
+            try {
+                // Step 1: Get CSRF token from cookies
+                const csrf = getCookie('csrf_token');
+                log(`CSRF token from cookie: ${csrf ? csrf.substring(0, 10) + '...' : 'NOT FOUND'}`, csrf ? 'success' : 'warn');
+
+                // Step 2: Make login request
+                log('Sending POST /api/admin/login...', 'info');
+                
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-csrf-token': csrf || ''
+                    },
+                    body: JSON.stringify({
+                        full_name: user,
+                        password: pass
+                    })
+                });
+
+                log(`Response status: ${response.status}`, response.ok ? 'success' : 'error');
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`SUCCESS: Token received: ${data.access_token.substring(0, 20)}...`, 'success');
+                    log(`User: ${data.name} (role: ${data.role})`, 'success');
+                } else {
+                    log(`ERROR: ${data.detail}`, 'error');
+                }
+
+            } catch(e) {
+                log(`EXCEPTION: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+
+        function getCookie(name) {
+            const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+            return v ? v[2] : null;
+        }
+
+        log('Debug console initialized. Ready for testing.', 'success');
+    </script>
+</body>
+</html>

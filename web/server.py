@@ -169,22 +169,28 @@ async def index(request: Request):
 async def admin(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
 
+@app.get("/admin_debug", response_class=HTMLResponse)
+async def admin_debug(request: Request):
+    return templates.TemplateResponse("admin_debug.html", {"request": request})
+
 class AdminLoginRequest(BaseModel):
     full_name: str
     password: str
 
 @app.post("/api/admin/login")
-async def admin_login(request: Request, login_data: Optional[AdminLoginRequest] = None,
-                      full_name: Optional[str] = None, password: Optional[str] = None,
-                      db: Session = Depends(get_db)):
-    """Admin login endpoint — accepts either JSON body or query params."""
-    # Resolve credentials from body or query params
-    username = (login_data.full_name if login_data else None) or full_name
-    pwd      = (login_data.password  if login_data else None) or password
-
-    if not username or not pwd:
+async def admin_login(request: AdminLoginRequest, db: Session = Depends(get_db)):
+    """Admin login endpoint — validates credentials and returns JWT token."""
+    username = request.full_name.strip()
+    pwd = request.password
+    
+    # Input validation
+    if not username or len(username) < 1 or len(username) > 100:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail="full_name and password are required")
+                            detail="Invalid full_name")
+    
+    if not pwd or len(pwd) < 1 or len(pwd) > 256:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="Invalid password")
 
     user = db.query(Person).filter(Person.full_name == username).first()
 
@@ -194,7 +200,7 @@ async def admin_login(request: Request, login_data: Optional[AdminLoginRequest] 
         sys_event = SystemEvent(
             event_type="admin_login_failed",
             timestamp=datetime.utcnow(),
-            metadata_json=json.dumps({"attempted_user": username}, ensure_ascii=False)
+            metadata_json=json.dumps({"attempted_user": username, "ip": "unknown"}, ensure_ascii=False)
         )
         db.add(sys_event)
         db.commit()
@@ -204,6 +210,10 @@ async def admin_login(request: Request, login_data: Optional[AdminLoginRequest] 
     if user.role not in ("admin", "teacher"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Нямате права за администраторски достъп")
+    
+    if not user.active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Вашият профил е деактивиран")
 
     from datetime import timedelta
     access_token = create_access_token(
@@ -591,10 +601,26 @@ async def create_person(request: PersonCreateRequest, db: Session = Depends(get_
     """
     Създава нов потребителски профил.
     """
+    # Input validation
+    full_name = request.full_name.strip() if request.full_name else ""
+    if not full_name or len(full_name) < 3 or len(full_name) > 100:
+        raise HTTPException(status_code=400, detail="Полното име трябва да има 3-100 символа")
+    
+    if request.role not in ["student", "teacher", "admin", "guest"]:
+        raise HTTPException(status_code=400, detail="Невалидна роля")
+    
+    if request.class_name and len(request.class_name) > 10:
+        raise HTTPException(status_code=400, detail="Класът е твърде дълъг")
+    
+    # Check if person already exists
+    existing = db.query(Person).filter(Person.full_name == full_name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Потребител с това име вече съществува")
+    
     person = Person(
-        full_name=request.full_name,
+        full_name=full_name,
         role=request.role,
-        class_name=request.class_name,
+        class_name=request.class_name if request.class_name else None,
         active=True
     )
     db.add(person)
@@ -658,21 +684,40 @@ async def get_audit_logs(limit: int = 100, db: Session = Depends(get_db), admin_
 @app.post("/api/events")
 async def create_event(request: EventCreateRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Създава ново събитие """
+    # Input validation
+    title = request.title.strip() if request.title else ""
+    if not title or len(title) < 3 or len(title) > 150:
+        raise HTTPException(status_code=400, detail="Заглавие трябва да има 3-150 символа")
+    
+    if request.description and len(request.description) > 500:
+        raise HTTPException(status_code=400, detail="Описанието е твърде дълго")
+    
+    if request.room and len(request.room) > 50:
+        raise HTTPException(status_code=400, detail="Кабинет е твърде дълъг")
+    
+    if request.target_group and len(request.target_group) > 100:
+        raise HTTPException(status_code=400, detail="Група е твърде дълга")
+    
+    # Validate dates
+    if request.end_time <= request.start_time:
+        raise HTTPException(status_code=400, detail="Краният час трябва да е след началния")
+    
     event = Event(
-        title=request.title,
+        title=title,
         description=request.description,
         start_time=request.start_time,
         end_time=request.end_time,
-        target_group=request.target_group,
+        target_group=request.target_group or "All",
         room=request.room
     )
     db.add(event)
     db.commit()
     db.refresh(event)
     
-    # Логваме администраторското действие
+    # Log admin action
     sys_event = SystemEvent(
         event_type="admin_event_created",
+        person_id=admin_user.id,
         timestamp=datetime.utcnow(),
         metadata_json=json.dumps({"event_id": event.id, "title": event.title}, ensure_ascii=False)
     )
@@ -703,12 +748,34 @@ async def delete_event(event_id: int, db: Session = Depends(get_db), admin_user:
 @app.post("/api/timetable")
 async def create_timetable_record(request: TimetableCreateRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Добавя нов запис в разписанието """
+    # Input validation
+    if not request.subject or len(request.subject) < 2 or len(request.subject) > 50:
+        raise HTTPException(status_code=400, detail="Предмет трябва да има 2-50 символа")
+    
+    if not request.room or len(request.room) > 20:
+        raise HTTPException(status_code=400, detail="Кабинет е невалиден")
+    
+    if request.class_name and len(request.class_name) > 10:
+        raise HTTPException(status_code=400, detail="Клас е невалиден")
+    
+    if request.period < 1 or request.period > 8:
+        raise HTTPException(status_code=400, detail="Период трябва да е между 1 и 8")
+    
+    # Validate person exists
+    person = db.query(Person).filter(Person.id == request.person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Потребителят не съществува")
+    
     try:
         st = datetime.strptime(request.start_time, "%H:%M").time()
         et = datetime.strptime(request.end_time, "%H:%M").time()
     except ValueError:
         raise HTTPException(status_code=400, detail="Невалиден формат за час. Използвайте ЧЧ:ММ")
-        
+    
+    # Validate time order
+    if et <= st:
+        raise HTTPException(status_code=400, detail="Краният час трябва да е след началния")
+    
     record = Timetable(
         person_id=request.person_id,
         date=request.date,
@@ -723,9 +790,10 @@ async def create_timetable_record(request: TimetableCreateRequest, db: Session =
     db.commit()
     db.refresh(record)
     
-    # Логваме администраторското действие
+    # Log admin action
     sys_event = SystemEvent(
         event_type="admin_timetable_created",
+        person_id=admin_user.id,
         timestamp=datetime.utcnow(),
         metadata_json=json.dumps({"record_id": record.id, "person_id": record.person_id}, ensure_ascii=False)
     )

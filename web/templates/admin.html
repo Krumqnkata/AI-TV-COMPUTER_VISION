@@ -678,23 +678,72 @@ let allEventsCache = [];
 let allMessagesCache = [];
 let allAuditCache = [];
 
-// Patch fetch to always send Authorization + CSRF headers
+// ═══════════════════════════════════════════════
+// WORKING FETCH WRAPPER - Simple & Reliable
+// ═══════════════════════════════════════════════
 const _origFetch = window.fetch.bind(window);
+
+// Override window.fetch to automatically inject JWT
 window.fetch = function(url, opts = {}) {
-    opts.headers = opts.headers || {};
-    if (authToken) {
+    // Ensure headers object exists
+    if (!opts.headers) {
+        opts.headers = {};
+    }
+    
+    // DEBUG: Log fetch details
+    const method = (opts.method || 'GET').toUpperCase();
+    console.log(`[FETCH] ${method} ${url}`);
+    console.log(`[AUTH] authToken exists: ${typeof authToken !== 'undefined' && authToken !== null}, length: ${authToken ? authToken.length : 0}`);
+    
+    // Add JWT token if available
+    if (typeof authToken !== 'undefined' && authToken !== null && authToken.length > 0) {
         opts.headers['Authorization'] = 'Bearer ' + authToken;
+        console.log(`[AUTH] Authorization header set. Token: ${authToken.substring(0, 30)}...`);
+    } else {
+        console.warn(`[AUTH] NO TOKEN AVAILABLE - authToken is ${authToken}`);
     }
-    const csrf = getCookie('csrf_token');
-    if (csrf && ['POST','PUT','DELETE','PATCH'].includes((opts.method || 'GET').toUpperCase())) {
-        opts.headers['x-csrf-token'] = csrf;
+    
+    // Add CSRF for mutations
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+        const csrf = getCookie('csrf_token');
+        if (csrf) {
+            opts.headers['x-csrf-token'] = csrf;
+            console.log(`[CSRF] CSRF token added`);
+        }
+        if (opts.body && !opts.headers['Content-Type']) {
+            opts.headers['Content-Type'] = 'application/json';
+        }
     }
-    return _origFetch(url, opts);
+    
+    console.log(`[HEADERS] Sending headers:`, opts.headers);
+    
+    // Call original fetch
+    return _origFetch(url, opts).then(response => {
+        console.log(`[RESPONSE] ${method} ${url} => ${response.status}`);
+        // Handle 401 Unauthorized
+        if (response.status === 401) {
+            console.error('401 Unauthorized - session expired');
+            handleSessionExpired();
+        }
+        return response;
+    }).catch(error => {
+        console.error('Fetch failed:', error);
+        throw error;
+    });
 };
 
 function getCookie(name) {
-    const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
-    return v ? v[2] : null;
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        const [key, value] = cookie.trim().split('=');
+        if (key === name) return decodeURIComponent(value);
+    }
+    return null;
+}
+
+function handleSessionExpired() {
+    toast('Вашата сесия е изтекла.', 'error');
+    logout();
 }
 
 /* ─── Login ─── */
@@ -705,8 +754,17 @@ async function attemptLogin() {
     const btn = document.getElementById('login-btn');
     const btnText = document.getElementById('login-btn-text');
 
-    if (!username || !password) {
-        showLoginError('Моля попълнете всички полета.');
+    // Validate inputs
+    if (!username || !username.length) {
+        showLoginError('Моля въведете потребителско име.');
+        return;
+    }
+    if (!password || password.length < 1) {
+        showLoginError('Моля въведете парола.');
+        return;
+    }
+    if (password.length > 256) {
+        showLoginError('Паролата е твърде дълга.');
         return;
     }
 
@@ -714,31 +772,56 @@ async function attemptLogin() {
     btnText.innerHTML = '<span class="spinner"></span>';
 
     try {
-        const params = new URLSearchParams({ full_name: username, password });
-        const res = await _origFetch('/api/admin/login?' + params.toString(), {
+        console.log('Attempting login for:', username);
+        
+        // Use original fetch for login (before token is set)
+        const res = await _origFetch('/api/admin/login', {
             method: 'POST',
-            headers: { 'x-csrf-token': getCookie('csrf_token') || '' }
+            headers: { 
+                'Content-Type': 'application/json',
+                'x-csrf-token': getCookie('csrf_token') || '' 
+            },
+            body: JSON.stringify({ full_name: username, password })
         });
 
+        console.log('Login response status:', res.status);
+        
         if (!res.ok) {
             const data = await res.json().catch(() => ({}));
+            console.error('Login error:', data);
             showLoginError(data.detail || 'Невалидни данни за вход.');
             return;
         }
 
         const data = await res.json();
+        console.log('Login successful:', data);
+        
+        // Validate JWT response
+        if (!data.access_token || !data.token_type || data.token_type !== 'bearer') {
+            showLoginError('Невалиден отговор от сървъра.');
+            return;
+        }
+        
         authToken = data.access_token;
+        console.log('✓ authToken set:', authToken.substring(0, 30) + '...');
+        
+        // Calculate session expiry (typically 8 hours from token creation)
+        sessionExpiryTime = Date.now() + (8 * 60 * 60 * 1000);
         sessionStorage.setItem(SESSION_KEY, authToken);
-        sessionStorage.setItem(USER_KEY, username);
-        currentUser = username;
+        sessionStorage.setItem(USER_KEY, data.name || username);
+        sessionStorage.setItem('SESSION_EXPIRY', sessionExpiryTime);
+        currentUser = data.name || username;
+        console.log('✓ Session stored. Token in sessionStorage:', !!sessionStorage.getItem(SESSION_KEY));
 
         document.getElementById('login-error').classList.add('hidden');
         document.getElementById('login-overlay').classList.add('hidden');
         document.getElementById('admin-main').classList.remove('hidden');
-        document.getElementById('admin-logged-user').textContent = username;
+        document.getElementById('admin-logged-user').textContent = currentUser;
+        startSessionMonitor();
         initAdmin();
 
     } catch(e) {
+        console.error('Login error:', e);
         showLoginError('Грешка при свързване със сървъра.');
     } finally {
         btn.disabled = false;
@@ -750,26 +833,68 @@ function showLoginError(msg) {
     const el = document.getElementById('login-error');
     el.textContent = msg;
     el.classList.remove('hidden');
+    // Auto-hide after 5 seconds
+    setTimeout(() => el.classList.add('hidden'), 5000);
 }
 
 function checkAuth() {
     const token = sessionStorage.getItem(SESSION_KEY);
     const user = sessionStorage.getItem(USER_KEY);
-    if (token) {
+    const expiry = parseInt(sessionStorage.getItem('SESSION_EXPIRY') || '0');
+    
+    if (token && user) {
+        // Check if session has expired
+        if (expiry && Date.now() > expiry) {
+            toast('Вашата сесия е изтекла.', 'info');
+            logout();
+            return;
+        }
+        
+        // CRITICAL: Restore authToken from sessionStorage!
         authToken = token;
-        currentUser = user || 'Admin';
+        console.log('✓ authToken restored from sessionStorage:', authToken.substring(0, 30) + '...');
+        
+        currentUser = user;
+        sessionExpiryTime = expiry || Date.now() + (8 * 60 * 60 * 1000);
         document.getElementById('login-overlay').classList.add('hidden');
         document.getElementById('admin-main').classList.remove('hidden');
         document.getElementById('admin-logged-user').textContent = currentUser;
+        startSessionMonitor();
         initAdmin();
     }
+}
+
+// Session monitor - check expiry every minute
+let sessionMonitorInterval = null;
+
+function startSessionMonitor() {
+    if (sessionMonitorInterval) clearInterval(sessionMonitorInterval);
+    sessionMonitorInterval = setInterval(() => {
+        if (!sessionExpiryTime) return;
+        
+        const timeLeft = sessionExpiryTime - Date.now();
+        const minutesLeft = Math.floor(timeLeft / (60 * 1000));
+        
+        // Warn user when 5 minutes left
+        if (minutesLeft === 5 && document.visibilityState === 'visible') {
+            toast('⚠️ Вашата сесия ще изтече за 5 минути.', 'warn');
+        }
+        
+        // Auto-logout when expired
+        if (timeLeft <= 0) {
+            toast('Вашата сесия е изтекла. Моля, влезте отново.', 'info');
+            logout();
+        }
+    }, 60000); // Check every minute
 }
 
 function logout() {
     authToken = null;
     currentUser = null;
+    if (sessionMonitorInterval) clearInterval(sessionMonitorInterval);
     sessionStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem('SESSION_EXPIRY');
     location.reload();
 }
 
@@ -825,6 +950,10 @@ const TABS = ['users','timetable','events','messages','audit'];
 const TAB_COLORS = { users:'p', timetable:'c', events:'p', messages:'c', audit:'a' };
 
 function switchTab(tab) {
+    console.log('[SWITCH] switchTab called with:', tab);
+    console.log('[SWITCH] TABS array:', TABS);
+    console.log('[SWITCH] TAB_COLORS:', TAB_COLORS);
+    
     TABS.forEach(s => {
         document.getElementById(`section-${s}`).classList.add('hidden');
         const btn = document.getElementById(`tab-${s}`);
@@ -833,11 +962,13 @@ function switchTab(tab) {
     document.getElementById(`section-${tab}`).classList.remove('hidden');
     document.getElementById(`tab-${tab}`).classList.add(`active-${TAB_COLORS[tab]}`);
 
-    if (tab === 'users')      loadUsersTab();
-    else if (tab === 'timetable') loadTimetableTab();
-    else if (tab === 'events')    loadEventsTab();
-    else if (tab === 'messages')  loadMessagesTab();
-    else if (tab === 'audit')     loadAuditTab();
+    console.log('[SWITCH] Calling tab loader for:', tab);
+    if (tab === 'users')      { console.log('[SWITCH] -> loadUsersTab'); loadUsersTab(); }
+    else if (tab === 'timetable') { console.log('[SWITCH] -> loadTimetableTab'); loadTimetableTab(); }
+    else if (tab === 'events')    { console.log('[SWITCH] -> loadEventsTab'); loadEventsTab(); }
+    else if (tab === 'messages')  { console.log('[SWITCH] -> loadMessagesTab'); loadMessagesTab(); }
+    else if (tab === 'audit')     { console.log('[SWITCH] -> loadAuditTab'); loadAuditTab(); }
+    else { console.warn('[SWITCH] Unknown tab:', tab); }
 }
 
 /* ═══════════════════════════════════════════════
@@ -962,7 +1093,23 @@ async function addNewUser() {
     const role = document.getElementById('add-user-role').value;
     const className = document.getElementById('add-user-class').value.trim();
 
-    if (!name) { toast('Моля въведете пълно име!', 'warn'); return; }
+    // Validation
+    if (!name || name.length < 3) {
+        toast('Полното име трябва да има поне 3 символа.', 'warn');
+        return;
+    }
+    if (name.length > 100) {
+        toast('Полното име е твърде дълго.', 'warn');
+        return;
+    }
+    if (!['student','teacher','admin','guest'].includes(role)) {
+        toast('Невалидна роля.', 'warn');
+        return;
+    }
+    if (className && className.length > 10) {
+        toast('Класът е твърде дълъг.', 'warn');
+        return;
+    }
 
     try {
         const res = await fetch('/api/persons', {
@@ -979,7 +1126,10 @@ async function addNewUser() {
         } else {
             toast(data.detail || 'Грешка при регистрация', 'error');
         }
-    } catch(e) { toast('Мрежова грешка', 'error'); }
+    } catch(e) { 
+        console.error(e);
+        toast('Мрежова грешка', 'error'); 
+    }
 }
 
 function toggleAddClass() {
@@ -1094,37 +1244,76 @@ async function loadUserTimetable() {
 async function addNewLesson() {
     const personId = document.getElementById('add-lesson-user').value;
     const dateVal  = document.getElementById('add-lesson-date').value;
-    const period   = document.getElementById('add-lesson-period').value;
+    const period   = parseInt(document.getElementById('add-lesson-period').value);
     const start    = document.getElementById('add-lesson-start').value;
     const end      = document.getElementById('add-lesson-end').value;
-    const subject  = document.getElementById('add-lesson-subject').value;
-    const room     = document.getElementById('add-lesson-room').value;
-    const className= document.getElementById('add-lesson-class').value;
+    const subject  = document.getElementById('add-lesson-subject').value.trim();
+    const room     = document.getElementById('add-lesson-room').value.trim();
+    const className= document.getElementById('add-lesson-class').value.trim();
 
-    if (!personId||!dateVal||!period||!start||!end||!subject||!room) {
-        toast('Моля попълнете всички задължителни полета!', 'warn');
+    // Validation
+    if (!personId) {
+        toast('Моля изберете потребител!', 'warn');
         return;
     }
+    if (!dateVal) {
+        toast('Моля изберете дата!', 'warn');
+        return;
+    }
+    if (!period || period < 1 || period > 8) {
+        toast('Период трябва да е между 1 и 8!', 'warn');
+        return;
+    }
+    if (!start || !/^\d{1,2}:\d{2}$/.test(start)) {
+        toast('Невалиден формат на начален час. Използвайте ЧЧ:ММ', 'warn');
+        return;
+    }
+    if (!end || !/^\d{1,2}:\d{2}$/.test(end)) {
+        toast('Невалиден формат на краен час. Използвайте ЧЧ:ММ', 'warn');
+        return;
+    }
+    if (!subject || subject.length < 2) {
+        toast('Предмет трябва да има поне 2 символа!', 'warn');
+        return;
+    }
+    if (subject.length > 50) {
+        toast('Предмет е твърде дълъг!', 'warn');
+        return;
+    }
+    if (!room || room.length < 1) {
+        toast('Моля въведете кабинет!', 'warn');
+        return;
+    }
+    if (room.length > 20) {
+        toast('Кабинет е твърде дълъг!', 'warn');
+        return;
+    }
+    
     try {
         const res = await fetch('/api/timetable', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 person_id: parseInt(personId), date: dateVal,
-                period: parseInt(period), start_time: start, end_time: end,
+                period: period, start_time: start, end_time: end,
                 subject, class_name: className||null, room
             })
         });
         const data = await res.json();
         if (data.success) {
             toast('Часът е записан успешно!', 'success');
-            document.getElementById('add-lesson-period').value = parseInt(period)+1;
+            document.getElementById('add-lesson-period').value = Math.min(period+1, 8);
             ['add-lesson-start','add-lesson-end','add-lesson-subject','add-lesson-room','add-lesson-class'].forEach(id => {
                 document.getElementById(id).value = '';
             });
             if (document.getElementById('timetable-user-select').value == personId) loadUserTimetable();
-        } else { toast(data.detail || 'Грешка', 'error'); }
-    } catch(e) { toast('Мрежова грешка', 'error'); }
+        } else { 
+            toast(data.detail || 'Грешка', 'error'); 
+        }
+    } catch(e) { 
+        console.error(e);
+        toast('Мрежова грешка', 'error'); 
+    }
 }
 
 async function deleteLesson(recordId) {
@@ -1186,13 +1375,50 @@ async function addNewEvent() {
     const group = document.getElementById('add-event-group').value.trim();
     const room  = document.getElementById('add-event-room').value.trim();
 
-    if (!title||!start||!end) { toast('Заглавие и начален/краен час са задължителни!', 'warn'); return; }
+    // Validation
+    if (!title || title.length < 3) {
+        toast('Заглавие трябва да има поне 3 символа!', 'warn');
+        return;
+    }
+    if (title.length > 150) {
+        toast('Заглавие е твърде дълго!', 'warn');
+        return;
+    }
+    if (!start) {
+        toast('Моля изберете начален час!', 'warn');
+        return;
+    }
+    if (!end) {
+        toast('Моля изберете краен час!', 'warn');
+        return;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (endDate <= startDate) {
+        toast('Краният час трябва да е след началния!', 'warn');
+        return;
+    }
+    if (desc && desc.length > 500) {
+        toast('Описанието е твърде дълго!', 'warn');
+        return;
+    }
+    if (room && room.length > 50) {
+        toast('Кабинет е твърде дълъг!', 'warn');
+        return;
+    }
+    
     try {
         const res = await fetch('/api/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, description: desc||null, start_time: start, end_time: end,
-                target_group: group||'All', room: room||null })
+            body: JSON.stringify({ 
+                title, 
+                description: desc||null, 
+                start_time: start, 
+                end_time: end,
+                target_group: group||'All', 
+                room: room||null 
+            })
         });
         const data = await res.json();
         if (data.success) {
@@ -1201,8 +1427,13 @@ async function addNewEvent() {
                 document.getElementById(id).value = '';
             });
             loadEventsTab();
+        } else {
+            toast(data.detail || 'Грешка', 'error');
         }
-    } catch(e) { toast('Мрежова грешка', 'error'); }
+    } catch(e) { 
+        console.error(e);
+        toast('Мрежова грешка', 'error'); 
+    }
 }
 
 async function deleteEvent(eventId) {
@@ -1257,9 +1488,11 @@ function filterMessages(query) {
    AUDIT LOG TAB
 ═══════════════════════════════════════════════ */
 async function loadAuditTab() {
+    console.log('[AUDIT] loadAuditTab() called');
     const tbody = document.getElementById('audit-table-body');
     tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center"><div class="skeleton h-3 w-48 mx-auto"></div></td></tr>';
     try {
+        console.log('[AUDIT] About to fetch /api/admin/audit with authToken:', authToken ? authToken.substring(0, 30) + '...' : 'UNDEFINED');
         const res = await fetch('/api/admin/audit?limit=200');
         if (!res.ok) {
             if (res.status === 403 || res.status === 401) {
