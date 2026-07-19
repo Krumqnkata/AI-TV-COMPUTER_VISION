@@ -20,6 +20,7 @@ class Person(Base):
     class_name = Column(String(10), nullable=True)  # Клас, ако е ученик
     active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    password_hash = Column(String(255), nullable=True)  # Argon2 hash for password
 
     # Relationships
     badges = relationship("Badge", back_populates="person", cascade="all, delete-orphan")

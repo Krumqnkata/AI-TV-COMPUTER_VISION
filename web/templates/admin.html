@@ -3,937 +3,1313 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>School AI - Admin Panel</title>
+    <title>School AI — Admin Control Panel</title>
+    <meta name="description" content="Административен контролен панел за School AI — управление на потребители, баджове, разписание и události.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap');
-        body {
+        :root {
+            --accent: #d946ef;
+            --accent2: #00f2ff;
+            --accent3: #f59e0b;
+            --bg-deep: #060608;
+            --bg-card: rgba(12,12,18,0.92);
+            --border-p: rgba(217,70,239,0.35);
+            --border-c: rgba(0,242,255,0.35);
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Rajdhani', sans-serif; background-color: var(--bg-deep); color: #e2e8f0; overflow-x: hidden; }
+        .mono { font-family: 'Share Tech Mono', monospace; }
+
+        /* ─── Scrollbars ─── */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 10px; }
+        .scroll-c::-webkit-scrollbar-thumb { background: var(--accent2); }
+
+        /* ─── Cards ─── */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(14px);
+            border-radius: 10px;
+            border: 1px solid var(--border-p);
+            box-shadow: 0 0 20px rgba(217,70,239,0.08);
+            transition: box-shadow .3s;
+        }
+        .card:hover { box-shadow: 0 0 32px rgba(217,70,239,0.16); }
+        .card-c {
+            border-color: var(--border-c);
+            box-shadow: 0 0 20px rgba(0,242,255,0.08);
+        }
+        .card-c:hover { box-shadow: 0 0 32px rgba(0,242,255,0.16); }
+        .card-a {
+            border-color: rgba(245,158,11,0.3);
+            box-shadow: 0 0 20px rgba(245,158,11,0.06);
+        }
+
+        /* ─── Glow ─── */
+        .glow-p { text-shadow: 0 0 12px rgba(217,70,239,0.7); }
+        .glow-c { text-shadow: 0 0 12px rgba(0,242,255,0.7); }
+
+        /* ─── Tabs ─── */
+        .tab-btn {
+            padding: 10px 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            border-bottom: 2px solid transparent;
+            color: #64748b;
+            transition: all .25s;
+            white-space: nowrap;
+            cursor: pointer;
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+        }
+        .tab-btn:hover { color: #e2e8f0; }
+        .tab-btn.active-p { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-btn.active-c { color: var(--accent2); border-bottom-color: var(--accent2); }
+        .tab-btn.active-a { color: var(--accent3); border-bottom-color: var(--accent3); }
+
+        /* ─── Inputs ─── */
+        .inp {
+            width: 100%;
+            background: rgba(0,0,0,0.45);
+            border: 1px solid #334155;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #cbd5e1;
+            outline: none;
+            transition: border .2s;
             font-family: 'Rajdhani', sans-serif;
-            background-color: #0a0a0c;
-            color: #e2e8f0;
         }
-        .cyber-border {
-            border: 1px solid #d946ef;
-            box-shadow: 0 0 15px rgba(217, 70, 239, 0.2);
+        .inp:focus { border-color: var(--accent); }
+        .inp-c:focus { border-color: var(--accent2); }
+        select.inp { cursor: pointer; }
+        textarea.inp { resize: none; }
+
+        /* ─── Buttons ─── */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 8px 18px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+            border-radius: 6px; border: none; cursor: pointer; transition: all .2s;
+            font-family: 'Rajdhani', sans-serif;
         }
-        .cyber-border-cyan {
-            border: 1px solid #00f2ff;
-            box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
+        .btn-p { background: var(--accent); color: #fff; box-shadow: 0 0 14px rgba(217,70,239,0.4); }
+        .btn-p:hover { background: #c026d3; box-shadow: 0 0 22px rgba(217,70,239,0.6); transform: translateY(-1px); }
+        .btn-c { background: #0891b2; color: #fff; box-shadow: 0 0 14px rgba(0,242,255,0.3); }
+        .btn-c:hover { background: #0e7490; box-shadow: 0 0 22px rgba(0,242,255,0.5); transform: translateY(-1px); }
+        .btn-a { background: #d97706; color: #fff; box-shadow: 0 0 14px rgba(245,158,11,0.3); }
+        .btn-a:hover { background: #b45309; transform: translateY(-1px); }
+        .btn-red { background: rgba(220,38,38,0.15); color: #f87171; border: 1px solid rgba(220,38,38,0.3); }
+        .btn-red:hover { background: rgba(220,38,38,0.3); }
+        .btn-yellow { background: rgba(234,179,8,0.12); color: #fbbf24; border: 1px solid rgba(234,179,8,0.25); }
+        .btn-yellow:hover { background: rgba(234,179,8,0.25); }
+        .btn-sm { padding: 4px 10px; font-size: 9px; }
+        .btn-ghost { background: transparent; border: 1px solid #334155; color: #94a3b8; }
+        .btn-ghost:hover { border-color: var(--accent2); color: var(--accent2); }
+
+        /* ─── Tables ─── */
+        .tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+        .tbl thead tr { border-bottom: 1px solid #1e293b; }
+        .tbl th { padding: 10px 8px; color: #475569; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+        .tbl td { padding: 10px 8px; border-bottom: 1px solid rgba(30,41,59,0.6); vertical-align: middle; }
+        .tbl tbody tr { transition: background .15s; }
+        .tbl tbody tr:hover { background: rgba(255,255,255,0.02); }
+        .tbl tbody tr:last-child td { border-bottom: none; }
+
+        /* ─── Badges / Tags ─── */
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+        .tag-green { background: rgba(34,197,94,0.1); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
+        .tag-red   { background: rgba(239,68,68,0.1);  color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+        .tag-yellow{ background: rgba(234,179,8,0.1);  color: #fbbf24; border: 1px solid rgba(234,179,8,0.2); }
+        .tag-blue  { background: rgba(59,130,246,0.1); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+        .tag-gray  { background: rgba(71,85,105,0.15); color: #64748b; border: 1px solid rgba(71,85,105,0.3); }
+        .tag-purple{ background: rgba(217,70,239,0.1); color: #e879f9; border: 1px solid rgba(217,70,239,0.2); }
+        .tag-cyan  { background: rgba(0,242,255,0.08); color: #22d3ee; border: 1px solid rgba(0,242,255,0.2); }
+
+        /* ─── Stats cards ─── */
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 18px 20px;
+            border: 1px solid rgba(30,41,59,0.8);
+            position: relative;
+            overflow: hidden;
         }
-        .cyber-bg {
-            background: rgba(15, 15, 20, 0.85);
-            backdrop-filter: blur(12px);
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0;
+            width: 3px; height: 100%;
+            border-radius: 10px 0 0 10px;
         }
-        .glow-text {
-            text-shadow: 0 0 10px rgba(217, 70, 239, 0.5);
+        .stat-p::before { background: var(--accent); }
+        .stat-c::before { background: var(--accent2); }
+        .stat-a::before { background: var(--accent3); }
+        .stat-g::before { background: #4ade80; }
+
+        /* ─── Skeleton loader ─── */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(30,41,59,0.5) 25%, rgba(51,65,85,0.5) 50%, rgba(30,41,59,0.5) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 4px;
         }
-        .glow-text-cyan {
-            text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+        /* ─── Toast ─── */
+        #toast-container {
+            position: fixed;
+            top: 20px; right: 20px;
+            z-index: 9999;
+            display: flex; flex-direction: column; gap: 8px;
+            pointer-events: none;
         }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d946ef; border-radius: 10px; }
-        .custom-scrollbar-cyan::-webkit-scrollbar-thumb { background: #06b6d4; border-radius: 10px; }
+        .toast {
+            padding: 12px 18px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 260px;
+            max-width: 340px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            animation: toast-in .3s ease;
+            pointer-events: all;
+            display: flex; align-items: center; gap: 10px;
+            border-left: 3px solid;
+        }
+        .toast-success { background: rgba(5,46,22,0.95); color: #4ade80; border-color: #4ade80; }
+        .toast-error   { background: rgba(69,10,10,0.95); color: #f87171; border-color: #f87171; }
+        .toast-info    { background: rgba(7,25,58,0.95);  color: #60a5fa; border-color: #60a5fa; }
+        .toast-warn    { background: rgba(66,32,6,0.95);  color: #fbbf24; border-color: #fbbf24; }
+        @keyframes toast-in { from{opacity:0;transform:translateX(40px)} to{opacity:1;transform:translateX(0)} }
+        @keyframes toast-out { to{opacity:0;transform:translateX(40px)} }
+
+        /* ─── Login ─── */
+        #login-overlay { background: radial-gradient(ellipse at center, #0d0a14 0%, #060608 70%); }
+        .login-card {
+            background: rgba(10,8,16,0.96);
+            border: 1px solid var(--border-p);
+            box-shadow: 0 0 60px rgba(217,70,239,0.15), 0 0 120px rgba(217,70,239,0.06);
+        }
+        .scan-line {
+            position: absolute; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(217,70,239,0.4), transparent);
+            animation: scan 3s linear infinite;
+            top: 0;
+        }
+        @keyframes scan { 0%{top:0} 100%{top:100%} }
+
+        /* ─── Pulse dot ─── */
+        .pulse-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .pulse-green { background: #4ade80; box-shadow: 0 0 0 0 rgba(74,222,128,0.4); animation: pulse-g 2s infinite; }
+        .pulse-red   { background: #f87171; }
+        @keyframes pulse-g { 0%,100%{box-shadow:0 0 0 0 rgba(74,222,128,0.4)} 50%{box-shadow:0 0 0 6px rgba(74,222,128,0)} }
+
+        /* ─── Grid layout ─── */
+        .grid-main { display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media(min-width:1024px){ .grid-main { grid-template-columns: 2fr 1fr; } }
+
+        /* ─── Section titles ─── */
+        .sec-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 700;
+            padding-bottom: 8px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid rgba(30,41,59,0.8);
+        }
+        .sec-title-p { color: var(--accent); border-color: rgba(217,70,239,0.2); }
+        .sec-title-c { color: var(--accent2); border-color: rgba(0,242,255,0.2); }
+        .sec-title-a { color: var(--accent3); border-color: rgba(245,158,11,0.2); }
+
+        /* ─── Search box ─── */
+        .search-box {
+            position: relative;
+        }
+        .search-box input { padding-left: 32px; }
+        .search-box::before {
+            content: '⌕';
+            position: absolute;
+            left: 10px; top: 50%; transform: translateY(-50%);
+            color: #475569; font-size: 14px; pointer-events: none;
+        }
+
+        /* ─── Spinner ─── */
+        .spinner {
+            width: 16px; height: 16px;
+            border: 2px solid rgba(255,255,255,0.15);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { to{transform:rotate(360deg)} }
+
+        /* ─── Audit event types ─── */
+        .audit-badge-detected     { color: #4ade80; }
+        .audit-unknown-badge      { color: #f87171; }
+        .audit-admin_event_created{ color: #e879f9; }
+        .audit-admin_event_deleted{ color: #fb923c; }
+        .audit-admin_person_deleted{ color: #f87171; }
+        .audit-message_created    { color: #60a5fa; }
+
+        /* ─── Hex decoration ─── */
+        .hex-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 0; opacity: 0.025;
+            background-image:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='52'%3E%3Cpolygon points='30,2 58,17 58,47 30,62 2,47 2,17' fill='none' stroke='%23d946ef' stroke-width='1'/%3E%3C/svg%3E");
+            background-size: 60px 52px;
+        }
     </style>
 </head>
-<body class="min-h-screen p-4 md:p-8">
-    <!-- Login Overlay -->
-    <div id="login-overlay" class="fixed inset-0 z-50 bg-[#060608] flex items-center justify-center p-4">
-        <div class="max-w-md w-full cyber-bg cyber-border p-8 rounded-lg relative overflow-hidden">
-            <div class="absolute -top-12 -right-12 w-36 h-36 bg-fuchsia-500/10 rounded-full blur-2xl"></div>
-            
-            <h2 class="text-3xl font-bold tracking-tighter text-fuchsia-500 glow-text mb-6 text-center">
-                SCHOOL AI <span class="text-white">ADMIN LOGIN</span>
-            </h2>
-            <div class="space-y-4">
-                <div>
-                    <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Потребителско име</label>
-                    <input type="text" id="login-username" value="admin" class="w-full bg-black/40 border border-slate-700 p-3 rounded text-sm text-slate-300 focus:border-fuchsia-500 outline-none">
-                </div>
-                <div>
-                    <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Парола</label>
-                    <input type="password" id="login-password" placeholder="••••••••" class="w-full bg-black/40 border border-slate-700 p-3 rounded text-sm text-slate-300 focus:border-fuchsia-500 outline-none">
-                </div>
-                <button onclick="attemptLogin()" class="w-full py-3 mt-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded transition-all uppercase tracking-widest text-sm shadow-[0_0_15px_rgba(217,70,239,0.4)]">
-                    Идентификация
-                </button>
-                <p class="text-[10px] text-slate-600 text-center uppercase tracking-wide">Парола по подразбиране: admin123</p>
+<body class="min-h-screen">
+
+<div class="hex-bg"></div>
+
+<!-- ═══════════════════════════ TOAST CONTAINER ═══════════════════════════ -->
+<div id="toast-container"></div>
+
+<!-- ═══════════════════════════ LOGIN OVERLAY ═══════════════════════════ -->
+<div id="login-overlay" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="login-card max-w-sm w-full p-8 rounded-xl relative overflow-hidden">
+        <div class="scan-line"></div>
+
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-14 h-14 rounded-full border border-fuchsia-500/40 mb-4" style="background:rgba(217,70,239,0.08)">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d946ef" stroke-width="1.5"><path d="M12 2L2 7v5c0 5.55 3.84 10.74 10 12 6.16-1.26 10-6.45 10-12V7L12 2z"/><path d="M9 12l2 2 4-4"/></svg>
             </div>
+            <h2 class="text-2xl font-bold tracking-tighter text-fuchsia-400 glow-p">SCHOOL AI</h2>
+            <p class="text-xs text-slate-500 uppercase tracking-widest mt-1">Административен достъп</p>
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1.5">Потребителско Име</label>
+                <input type="text" id="login-username" class="inp" placeholder="напр. Иван Иванов"
+                    onkeydown="if(event.key==='Enter')attemptLogin()">
+            </div>
+            <div>
+                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1.5">Парола</label>
+                <input type="password" id="login-password" class="inp" placeholder="••••••••"
+                    onkeydown="if(event.key==='Enter')attemptLogin()">
+            </div>
+            <div id="login-error" class="hidden text-xs text-red-400 bg-red-950/40 border border-red-900/40 rounded p-2.5"></div>
+            <button id="login-btn" onclick="attemptLogin()" class="btn btn-p w-full mt-2">
+                <span id="login-btn-text">Идентификация</span>
+            </button>
+        </div>
+        <p class="text-[9px] text-slate-700 text-center mt-5 mono">AUTHORIZED PERSONNEL ONLY // SCHOOL AI v2.0</p>
+    </div>
+</div>
+
+<!-- ═══════════════════════════ MAIN PANEL ═══════════════════════════ -->
+<div class="max-w-screen-xl mx-auto p-4 md:p-6 hidden" id="admin-main">
+
+    <!-- Header -->
+    <header class="flex flex-wrap justify-between items-start gap-4 mb-6 border-b border-fuchsia-900/30 pb-5">
+        <div>
+            <h1 class="text-3xl font-bold tracking-tighter glow-p text-fuchsia-400">
+                SCHOOL AI <span class="text-white">CONTROL</span>
+            </h1>
+            <p class="text-[10px] text-fuchsia-700 uppercase tracking-widest mt-0.5">
+                Административен интерфейс // Баджове · Разписание · Събития · Одит
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-500/20 bg-green-500/5">
+                <span class="pulse-dot pulse-green"></span>
+                <span id="admin-logged-user" class="text-[11px] text-green-400 mono">—</span>
+            </div>
+            <a href="/" class="btn btn-ghost btn-sm">⬅ HUD</a>
+            <button onclick="logout()" class="btn btn-red btn-sm">ИЗХОД</button>
+        </div>
+    </header>
+
+    <!-- Stats Row -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" id="stats-row">
+        <div class="stat-card stat-p">
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Потребители</p>
+            <p class="text-3xl font-bold text-fuchsia-400 mono" id="stat-users">—</p>
+        </div>
+        <div class="stat-card stat-c">
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Активни баджове</p>
+            <p class="text-3xl font-bold text-cyan-400 mono" id="stat-badges">—</p>
+        </div>
+        <div class="stat-card stat-g">
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Събития</p>
+            <p class="text-3xl font-bold text-green-400 mono" id="stat-events">—</p>
+        </div>
+        <div class="stat-card stat-a">
+            <p class="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Съобщения</p>
+            <p class="text-3xl font-bold text-amber-400 mono" id="stat-messages">—</p>
         </div>
     </div>
 
-    <!-- Main Container -->
-    <div class="max-w-7xl mx-auto hidden" id="admin-main">
-        <!-- Header -->
-        <header class="flex justify-between items-center mb-8 border-b border-fuchsia-900/50 pb-4">
-            <div>
-                <h1 class="text-4xl font-bold tracking-tighter text-fuchsia-500 glow-text">SCHOOL AI <span class="text-white">ADMIN CONTROL</span></h1>
-                <p class="text-sm text-fuchsia-600 uppercase tracking-widest">Административен интерфейс за управление // Баджове, събития и разписание</p>
-            </div>
-            <div class="flex items-center space-x-4">
-                <a href="/" class="px-4 py-2 rounded border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 text-xs font-bold transition-all">
-                    КЪМ КЛИЕНТСКИЯ HUD
-                </a>
-                <button onclick="logout()" class="px-4 py-2 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10 text-xs font-bold transition-all">
-                    ИЗХОД
-                </button>
-            </div>
-        </header>
+    <!-- Navigation Tabs -->
+    <div class="flex space-x-1 border-b border-slate-800 mb-6 overflow-x-auto pb-px">
+        <button class="tab-btn active-p" id="tab-users"     onclick="switchTab('users')">👥 Потребители</button>
+        <button class="tab-btn"          id="tab-timetable" onclick="switchTab('timetable')">📅 Разписание</button>
+        <button class="tab-btn"          id="tab-events"    onclick="switchTab('events')">🎉 Събития</button>
+        <button class="tab-btn"          id="tab-messages"  onclick="switchTab('messages')">✉️ Поща</button>
+        <button class="tab-btn"          id="tab-audit"     onclick="switchTab('audit')">🔍 Одит журнал</button>
+    </div>
 
-        <!-- Navigation Tabs -->
-        <div class="flex space-x-2 border-b border-slate-800 mb-6">
-            <button onclick="switchTab('users')" id="tab-users" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-fuchsia-500 text-fuchsia-400">
-                Потребители & Баджове
-            </button>
-            <button onclick="switchTab('timetable')" id="tab-timetable" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
-                Училищно разписание
-            </button>
-            <button onclick="switchTab('events')" id="tab-events" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
-                Събития & Клубове
-            </button>
-            <button onclick="switchTab('messages')" id="tab-messages" class="px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200">
-                Виртуална поща
-            </button>
-        </div>
-
-        <!-- ================= TAB: USERS ================= -->
-        <div id="section-users" class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- List Users (Left) -->
-            <div class="lg:col-span-2 space-y-6">
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
-                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
-                        Списък с потребители
-                    </h3>
-                    <div class="overflow-x-auto custom-scrollbar">
-                        <table class="w-full text-left border-collapse text-xs">
-                            <thead>
-                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
-                                    <th class="py-3 px-2">ID</th>
-                                    <th class="py-3 px-2">Име</th>
-                                    <th class="py-3 px-2">Роля</th>
-                                    <th class="py-3 px-2">Клас</th>
-                                    <th class="py-3 px-2">Профил</th>
-                                    <th class="py-3 px-2">Бадж</th>
-                                    <th class="py-3 px-2 text-right">Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="users-table-body" class="divide-y divide-slate-900">
-                                <!-- Loaded dynamically -->
-                            </tbody>
-                        </table>
+    <!-- ════════════ TAB: USERS ════════════ -->
+    <div id="section-users" class="grid-main">
+        <div class="space-y-5">
+            <div class="card p-5">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                    <h3 class="sec-title sec-title-p m-0 border-0 pb-0">Регистрирани потребители</h3>
+                    <div class="search-box flex-1 min-w-[180px] max-w-xs">
+                        <input type="text" id="users-search" class="inp" placeholder="Търси по име..."
+                            oninput="filterUsers(this.value)">
                     </div>
                 </div>
-            </div>
-
-            <!-- Register User & General Info (Right) -->
-            <div class="space-y-6">
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
-                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
-                        Добави нов потребител
-                    </h3>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Име и фамилия</label>
-                            <input type="text" id="add-user-name" placeholder="напр. Иван Иванов" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Роля</label>
-                                <select id="add-user-role" onchange="toggleAddClass()" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                                    <option value="student">Ученик</option>
-                                    <option value="teacher">Учител</option>
-                                    <option value="admin">Администратор</option>
-                                    <option value="guest">Гост</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас</label>
-                                <input type="text" id="add-user-class" placeholder="напр. 9Б" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                            </div>
-                        </div>
-                        <button onclick="addNewUser()" class="w-full py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
-                            Регистрирай потребител
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Badges Management Info -->
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
-                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
-                        Активни баджове в системата
-                    </h3>
-                    <div class="h-48 overflow-y-auto custom-scrollbar space-y-2" id="badges-list-container">
-                        <!-- Loaded dynamically -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= TAB: TIMETABLE ================= -->
-        <div id="section-timetable" class="grid grid-cols-1 lg:grid-cols-3 gap-8 hidden">
-            <!-- Timetable Loader (Left) -->
-            <div class="lg:col-span-2 space-y-6">
-                <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
-                    <div class="flex justify-between items-center mb-4 border-b border-cyan-950 pb-2">
-                        <h3 class="text-cyan-400 text-xs font-bold uppercase tracking-widest">
-                            Учебна програма за избран потребител
-                        </h3>
-                        <select id="timetable-user-select" onchange="loadUserTimetable()" class="bg-black/40 border border-slate-700 p-1.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            <option value="">Избери потребител...</option>
-                        </select>
-                    </div>
-                    <div class="overflow-x-auto custom-scrollbar-cyan">
-                        <table class="w-full text-left border-collapse text-xs">
-                            <thead>
-                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
-                                    <th class="py-3 px-2">Дата</th>
-                                    <th class="py-3 px-2">Час (Период)</th>
-                                    <th class="py-3 px-2">Време</th>
-                                    <th class="py-3 px-2">Предмет</th>
-                                    <th class="py-3 px-2">Клас</th>
-                                    <th class="py-3 px-2">Кабинет</th>
-                                    <th class="py-3 px-2 text-right">Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="timetable-table-body" class="divide-y divide-slate-900">
-                                <tr>
-                                    <td colspan="7" class="py-6 text-center text-slate-500">Изберете потребител, за да видите програмата му</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Add Lesson (Right) -->
-            <div class="space-y-6">
-                <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
-                    <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-950 pb-2">
-                        Добави час в програмата
-                    </h3>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Потребител</label>
-                            <select id="add-lesson-user" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                                <option value="">Избери...</option>
-                            </select>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Дата</label>
-                                <input type="date" id="add-lesson-date" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Час № (Период)</label>
-                                <input type="number" id="add-lesson-period" min="1" max="8" value="1" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало (ЧЧ:ММ)</label>
-                                <input type="text" id="add-lesson-start" placeholder="08:00" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край (ЧЧ:ММ)</label>
-                                <input type="text" id="add-lesson-end" placeholder="08:45" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Предмет</label>
-                                <input type="text" id="add-lesson-subject" placeholder="напр. Математика" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет</label>
-                                <input type="text" id="add-lesson-room" placeholder="напр. Кабинет 201" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас (само за ученици/учители)</label>
-                            <input type="text" id="add-lesson-class" placeholder="напр. 9Б" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                        </div>
-                        <button onclick="addNewLesson()" class="w-full py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
-                            Запиши часа
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= TAB: EVENTS ================= -->
-        <div id="section-events" class="grid grid-cols-1 lg:grid-cols-3 gap-8 hidden">
-            <!-- Events list (Left) -->
-            <div class="lg:col-span-2 space-y-6">
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
-                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
-                        Списък с училищни събития
-                    </h3>
-                    <div class="overflow-x-auto custom-scrollbar">
-                        <table class="w-full text-left border-collapse text-xs">
-                            <thead>
-                                <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
-                                    <th class="py-3 px-2">ID</th>
-                                    <th class="py-3 px-2">Събитие</th>
-                                    <th class="py-3 px-2">Описание</th>
-                                    <th class="py-3 px-2">Начало</th>
-                                    <th class="py-3 px-2">Край</th>
-                                    <th class="py-3 px-2">Група</th>
-                                    <th class="py-3 px-2">Кабинет</th>
-                                    <th class="py-3 px-2 text-right">Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="events-table-body" class="divide-y divide-slate-900">
-                                <!-- Loaded dynamically -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Create Event (Right) -->
-            <div class="space-y-6">
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
-                    <h3 class="text-fuchsia-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-fuchsia-950 pb-2">
-                        Създай ново събитие
-                    </h3>
-                    <div class="space-y-4">
-                        <div>
-                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Заглавие</label>
-                            <input type="text" id="add-event-title" placeholder="напр. Концерт на училището" class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                        </div>
-                        <div>
-                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Описание</label>
-                            <textarea id="add-event-desc" rows="2" placeholder="Кратко описание..." class="w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none resize-none"></textarea>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало (Дата & Час)</label>
-                                <input type="datetime-local" id="add-event-start" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край (Дата & Час)</label>
-                                <input type="datetime-local" id="add-event-end" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Целева група</label>
-                                <input type="text" id="add-event-group" placeholder="напр. All или 9Б" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет/Зала</label>
-                                <input type="text" id="add-event-room" placeholder="напр. Фоайе" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none">
-                            </div>
-                        </div>
-                        <button onclick="addNewEvent()" class="w-full py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded text-xs uppercase tracking-widest transition-all">
-                            Публикувай събитието
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= TAB: MESSAGES ================= -->
-        <div id="section-messages" class="space-y-6 hidden">
-            <div class="cyber-bg cyber-border-cyan p-6 rounded-lg">
-                <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-950 pb-2">
-                    Архив на виртуалната поща (Всички съобщения)
-                </h3>
-                <div class="overflow-x-auto custom-scrollbar-cyan">
-                    <table class="w-full text-left border-collapse text-xs">
+                <div class="overflow-x-auto">
+                    <table class="tbl">
                         <thead>
-                            <tr class="border-b border-slate-800 text-slate-500 uppercase tracking-widest">
-                                <th class="py-3 px-2">ID</th>
-                                <th class="py-3 px-2">Подател</th>
-                                <th class="py-3 px-2">Получател</th>
-                                <th class="py-3 px-2">Съдържание</th>
-                                <th class="py-3 px-2">Валидно до</th>
-                                <th class="py-3 px-2">Доставено на</th>
-                                <th class="py-3 px-2">Статус</th>
+                            <tr>
+                                <th>ID</th>
+                                <th>Потребител</th>
+                                <th>Роля</th>
+                                <th>Клас</th>
+                                <th>Статус</th>
+                                <th>Бадж</th>
+                                <th class="text-right">Действия</th>
                             </tr>
                         </thead>
-                        <tbody id="messages-table-body" class="divide-y divide-slate-900">
-                            <!-- Loaded dynamically -->
+                        <tbody id="users-table-body">
+                            <tr><td colspan="7" class="text-center py-8"><div class="skeleton h-4 w-48 mx-auto"></div></td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- QR Badge Generated Modal -->
-    <div id="qr-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-        <div class="max-w-sm w-full cyber-bg cyber-border-cyan p-6 rounded-lg text-center relative">
-            <h3 class="text-lg font-bold text-cyan-400 mb-2 glow-text-cyan">УСПЕШНО ГЕНЕРИРАН БАДЖ</h3>
-            <p class="text-xs text-slate-400 mb-4" id="qr-modal-user">-</p>
-            
-            <div class="bg-white p-4 rounded-lg inline-block mb-4">
-                <canvas id="qr-canvas"></canvas>
+        <div class="space-y-5">
+            <!-- Add User Form -->
+            <div class="card p-5">
+                <h3 class="sec-title sec-title-p">Добави потребител</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Пълно Име</label>
+                        <input type="text" id="add-user-name" class="inp" placeholder="напр. Иван Иванов">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Роля</label>
+                            <select id="add-user-role" class="inp" onchange="toggleAddClass()">
+                                <option value="student">Ученик</option>
+                                <option value="teacher">Учител</option>
+                                <option value="admin">Администратор</option>
+                                <option value="guest">Гост</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас</label>
+                            <input type="text" id="add-user-class" class="inp" placeholder="напр. 9Б">
+                        </div>
+                    </div>
+                    <button onclick="addNewUser()" class="btn btn-p w-full">Регистрирай</button>
+                </div>
             </div>
-            
-            <p class="text-xs text-slate-300 font-mono select-all bg-black/60 p-2 rounded mb-6" id="qr-modal-token">-</p>
-            
-            <button onclick="closeQRModal()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/30 rounded font-bold text-xs uppercase tracking-widest transition-all">
-                Затвори
-            </button>
+
+            <!-- Active Badges -->
+            <div class="card p-5">
+                <h3 class="sec-title sec-title-p">Активни баджове</h3>
+                <div class="max-h-56 overflow-y-auto space-y-2 scroll-c pr-1" id="badges-list-container">
+                    <div class="text-slate-600 text-xs text-center py-4">Зареждане…</div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script>
-        // Authentication management
-        function attemptLogin() {
-            const pass = document.getElementById('login-password').value;
-            if (pass === 'admin123') {
-                sessionStorage.setItem('isAdminLoggedIn', 'true');
-                document.getElementById('login-overlay').classList.add('hidden');
-                document.getElementById('admin-main').classList.remove('hidden');
-                initAdmin();
-            } else {
-                alert('Невалидна парола! Моля опитайте отново.');
-            }
+    <!-- ════════════ TAB: TIMETABLE ════════════ -->
+    <div id="section-timetable" class="grid-main hidden">
+        <div class="space-y-5">
+            <div class="card card-c p-5">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                    <h3 class="sec-title sec-title-c m-0 border-0 pb-0">Разписание</h3>
+                    <select id="timetable-user-select" class="inp inp-c max-w-[220px]" onchange="loadUserTimetable()">
+                        <option value="">Избери потребител…</option>
+                    </select>
+                </div>
+                <div class="overflow-x-auto scroll-c">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Период</th>
+                                <th>Час</th>
+                                <th>Предмет</th>
+                                <th>Клас</th>
+                                <th>Кабинет</th>
+                                <th class="text-right">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timetable-table-body">
+                            <tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Изберете потребител…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-5">
+            <div class="card card-c p-5">
+                <h3 class="sec-title sec-title-c">Добави час</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Потребител</label>
+                        <select id="add-lesson-user" class="inp inp-c"></select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Дата</label>
+                            <input type="date" id="add-lesson-date" class="inp inp-c">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Период №</label>
+                            <input type="number" id="add-lesson-period" min="1" max="8" value="1" class="inp inp-c">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало</label>
+                            <input type="text" id="add-lesson-start" placeholder="08:00" class="inp inp-c">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край</label>
+                            <input type="text" id="add-lesson-end" placeholder="08:45" class="inp inp-c">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Предмет</label>
+                            <input type="text" id="add-lesson-subject" placeholder="Математика" class="inp inp-c">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет</label>
+                            <input type="text" id="add-lesson-room" placeholder="Кабинет 201" class="inp inp-c">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Клас (по избор)</label>
+                        <input type="text" id="add-lesson-class" placeholder="9Б" class="inp inp-c">
+                    </div>
+                    <button onclick="addNewLesson()" class="btn btn-c w-full">Запиши часа</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ TAB: EVENTS ════════════ -->
+    <div id="section-events" class="grid-main hidden">
+        <div class="space-y-5">
+            <div class="card p-5">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                    <h3 class="sec-title sec-title-p m-0 border-0 pb-0">Училищни събития</h3>
+                    <div class="search-box flex-1 min-w-[160px] max-w-xs">
+                        <input type="text" id="events-search" class="inp" placeholder="Търси събитие…"
+                            oninput="filterEvents(this.value)">
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="tbl">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Събитие</th>
+                                <th>Начало</th>
+                                <th>Край</th>
+                                <th>Група</th>
+                                <th>Кабинет</th>
+                                <th class="text-right">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="events-table-body">
+                            <tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Зареждане…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="space-y-5">
+            <div class="card p-5">
+                <h3 class="sec-title sec-title-p">Ново събитие</h3>
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Заглавие</label>
+                        <input type="text" id="add-event-title" class="inp" placeholder="Концерт на училището">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Описание</label>
+                        <textarea id="add-event-desc" rows="2" class="inp" placeholder="Кратко описание…"></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Начало</label>
+                            <input type="datetime-local" id="add-event-start" class="inp">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Край</label>
+                            <input type="datetime-local" id="add-event-end" class="inp">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Целева група</label>
+                            <input type="text" id="add-event-group" class="inp" placeholder="All или 9Б">
+                        </div>
+                        <div>
+                            <label class="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Кабинет/Зала</label>
+                            <input type="text" id="add-event-room" class="inp" placeholder="Фоайе">
+                        </div>
+                    </div>
+                    <button onclick="addNewEvent()" class="btn btn-p w-full">Публикувай</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ TAB: MESSAGES ════════════ -->
+    <div id="section-messages" class="hidden">
+        <div class="card p-5">
+            <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                <h3 class="sec-title sec-title-c m-0 border-0 pb-0">Архив на виртуалната поща</h3>
+                <div class="search-box flex-1 min-w-[160px] max-w-xs">
+                    <input type="text" id="messages-search" class="inp inp-c" placeholder="Търси…"
+                        oninput="filterMessages(this.value)">
+                </div>
+            </div>
+            <div class="overflow-x-auto scroll-c">
+                <table class="tbl">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Подател</th>
+                            <th>Получател</th>
+                            <th>Съдържание</th>
+                            <th>Валидно до</th>
+                            <th>Доставено на</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="messages-table-body">
+                        <tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Зареждане…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════ TAB: AUDIT ════════════ -->
+    <div id="section-audit" class="hidden">
+        <div class="card card-a p-5">
+            <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+                <h3 class="sec-title sec-title-a m-0 border-0 pb-0">🔍 Системен одит журнал</h3>
+                <div class="flex items-center gap-3">
+                    <select id="audit-filter-type" class="inp max-w-[160px]" onchange="filterAudit()">
+                        <option value="">Всички типове</option>
+                        <option value="badge_detected">Засичане на бадж</option>
+                        <option value="unknown_badge_detected">Неразпознат бадж</option>
+                        <option value="admin_event_created">Създадено събитие</option>
+                        <option value="admin_event_deleted">Изтрито събитие</option>
+                        <option value="admin_person_deleted">Изтрит потребител</option>
+                        <option value="message_created">Ново съобщение</option>
+                    </select>
+                    <button onclick="loadAuditTab()" class="btn btn-a btn-sm">↻ Обнови</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto scroll-c">
+                <table class="tbl" id="audit-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Тип събитие</th>
+                            <th>Дата / Час</th>
+                            <th>Метаданни</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-table-body">
+                        <tr><td colspan="4" class="py-8 text-center text-slate-600 text-xs">Зареждане…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div><!-- end admin-main -->
+
+<!-- QR Modal -->
+<div id="qr-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <div class="card max-w-xs w-full p-6 text-center">
+        <h3 class="text-lg font-bold text-cyan-400 glow-c mb-1">✅ БАДЖ ГЕНЕРИРАН</h3>
+        <p class="text-xs text-slate-400 mb-4" id="qr-modal-user">—</p>
+        <div class="bg-white p-3 rounded-lg inline-block mb-4">
+            <canvas id="qr-canvas"></canvas>
+        </div>
+        <p class="text-[10px] text-slate-300 mono select-all bg-black/60 p-2 rounded mb-4 break-all" id="qr-modal-token">—</p>
+        <button onclick="closeQRModal()" class="btn btn-ghost w-full">Затвори</button>
+    </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   AUTH & TOKEN MANAGEMENT
+═══════════════════════════════════════════════ */
+const SESSION_KEY = 'adminJWT';
+const USER_KEY = 'adminUser';
+let authToken = null;
+let currentUser = null;
+let allPersonsCache = [];
+let allEventsCache = [];
+let allMessagesCache = [];
+let allAuditCache = [];
+
+// Patch fetch to always send Authorization + CSRF headers
+const _origFetch = window.fetch.bind(window);
+window.fetch = function(url, opts = {}) {
+    opts.headers = opts.headers || {};
+    if (authToken) {
+        opts.headers['Authorization'] = 'Bearer ' + authToken;
+    }
+    const csrf = getCookie('csrf_token');
+    if (csrf && ['POST','PUT','DELETE','PATCH'].includes((opts.method || 'GET').toUpperCase())) {
+        opts.headers['x-csrf-token'] = csrf;
+    }
+    return _origFetch(url, opts);
+};
+
+function getCookie(name) {
+    const v = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+    return v ? v[2] : null;
+}
+
+/* ─── Login ─── */
+async function attemptLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const errEl = document.getElementById('login-error');
+    const btn = document.getElementById('login-btn');
+    const btnText = document.getElementById('login-btn-text');
+
+    if (!username || !password) {
+        showLoginError('Моля попълнете всички полета.');
+        return;
+    }
+
+    btn.disabled = true;
+    btnText.innerHTML = '<span class="spinner"></span>';
+
+    try {
+        const params = new URLSearchParams({ full_name: username, password });
+        const res = await _origFetch('/api/admin/login?' + params.toString(), {
+            method: 'POST',
+            headers: { 'x-csrf-token': getCookie('csrf_token') || '' }
+        });
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showLoginError(data.detail || 'Невалидни данни за вход.');
+            return;
         }
 
-        function checkAuth() {
-            if (sessionStorage.getItem('isAdminLoggedIn') === 'true') {
-                document.getElementById('login-overlay').classList.add('hidden');
-                document.getElementById('admin-main').classList.remove('hidden');
-                initAdmin();
-            }
-        }
+        const data = await res.json();
+        authToken = data.access_token;
+        sessionStorage.setItem(SESSION_KEY, authToken);
+        sessionStorage.setItem(USER_KEY, username);
+        currentUser = username;
 
-        function logout() {
-            sessionStorage.removeItem('isAdminLoggedIn');
-            location.reload();
-        }
+        document.getElementById('login-error').classList.add('hidden');
+        document.getElementById('login-overlay').classList.add('hidden');
+        document.getElementById('admin-main').classList.remove('hidden');
+        document.getElementById('admin-logged-user').textContent = username;
+        initAdmin();
 
-        // Tab Switcher
-        function switchTab(tab) {
-            const sections = ['users', 'timetable', 'events', 'messages'];
-            sections.forEach(s => {
-                const secEl = document.getElementById(`section-${s}`);
-                const tabEl = document.getElementById(`tab-${s}`);
-                if (s === tab) {
-                    secEl.classList.remove('hidden');
-                    tabEl.className = "px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-fuchsia-500 text-fuchsia-400";
-                } else {
-                    secEl.classList.add('hidden');
-                    tabEl.className = "px-6 py-3 font-bold border-b-2 text-sm uppercase tracking-wider transition-all border-transparent text-slate-400 hover:text-slate-200";
-                }
-            });
-            
-            // Reload specific tab data
-            if (tab === 'users') {
-                loadUsersTab();
-            } else if (tab === 'timetable') {
-                loadTimetableTab();
-            } else if (tab === 'events') {
-                loadEventsTab();
-            } else if (tab === 'messages') {
-                loadMessagesTab();
-            }
-        }
+    } catch(e) {
+        showLoginError('Грешка при свързване със сървъра.');
+    } finally {
+        btn.disabled = false;
+        btnText.textContent = 'Идентификация';
+    }
+}
 
-        // Data initialization
-        function initAdmin() {
+function showLoginError(msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+}
+
+function checkAuth() {
+    const token = sessionStorage.getItem(SESSION_KEY);
+    const user = sessionStorage.getItem(USER_KEY);
+    if (token) {
+        authToken = token;
+        currentUser = user || 'Admin';
+        document.getElementById('login-overlay').classList.add('hidden');
+        document.getElementById('admin-main').classList.remove('hidden');
+        document.getElementById('admin-logged-user').textContent = currentUser;
+        initAdmin();
+    }
+}
+
+function logout() {
+    authToken = null;
+    currentUser = null;
+    sessionStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(USER_KEY);
+    location.reload();
+}
+
+/* ═══════════════════════════════════════════════
+   TOAST NOTIFICATIONS
+═══════════════════════════════════════════════ */
+function toast(msg, type = 'info', duration = 3500) {
+    const icons = { success: '✓', error: '✕', info: 'ℹ', warn: '⚠' };
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.innerHTML = `<span style="font-size:14px">${icons[type] || 'ℹ'}</span><span>${msg}</span>`;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.style.animation = 'toast-out .3s ease forwards';
+        setTimeout(() => el.remove(), 300);
+    }, duration);
+}
+
+/* ═══════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════ */
+function formatRole(role) {
+    return { student:'Ученик', teacher:'Учител', admin:'Администратор', guest:'Гост' }[role] || role;
+}
+function formatDate(iso) {
+    if (!iso) return '<span class="text-slate-600">—</span>';
+    return new Date(iso).toLocaleString('bg-BG');
+}
+function formatRoleTag(role) {
+    const map = {
+        student: 'tag-blue',
+        teacher: 'tag-cyan',
+        admin:   'tag-purple',
+        guest:   'tag-gray'
+    };
+    return `<span class="tag ${map[role]||'tag-gray'}">${formatRole(role)}</span>`;
+}
+function formatStatusTag(active) {
+    return active
+        ? '<span class="tag tag-green">Активен</span>'
+        : '<span class="tag tag-red">Спрян</span>';
+}
+function formatMsgStatus(s) {
+    const map = { active:'tag-green', delivered:'tag-cyan', expired:'tag-gray', deleted:'tag-red' };
+    return `<span class="tag ${map[s]||'tag-gray'}">${s.toUpperCase()}</span>`;
+}
+
+/* ═══════════════════════════════════════════════
+   TAB SWITCHER
+═══════════════════════════════════════════════ */
+const TABS = ['users','timetable','events','messages','audit'];
+const TAB_COLORS = { users:'p', timetable:'c', events:'p', messages:'c', audit:'a' };
+
+function switchTab(tab) {
+    TABS.forEach(s => {
+        document.getElementById(`section-${s}`).classList.add('hidden');
+        const btn = document.getElementById(`tab-${s}`);
+        btn.classList.remove('active-p','active-c','active-a');
+    });
+    document.getElementById(`section-${tab}`).classList.remove('hidden');
+    document.getElementById(`tab-${tab}`).classList.add(`active-${TAB_COLORS[tab]}`);
+
+    if (tab === 'users')      loadUsersTab();
+    else if (tab === 'timetable') loadTimetableTab();
+    else if (tab === 'events')    loadEventsTab();
+    else if (tab === 'messages')  loadMessagesTab();
+    else if (tab === 'audit')     loadAuditTab();
+}
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+function initAdmin() {
+    loadStats();
+    loadUsersTab();
+}
+
+async function loadStats() {
+    try {
+        const [personsRes, badgesRes, eventsRes, msgsRes] = await Promise.all([
+            fetch('/api/persons'),
+            fetch('/api/badges'),
+            fetch('/api/events'),
+            fetch('/api/messages')
+        ]);
+        const persons = await personsRes.json();
+        const badges  = await badgesRes.json();
+        const events  = await eventsRes.json();
+        const msgs    = await msgsRes.json();
+
+        document.getElementById('stat-users').textContent    = persons.length;
+        document.getElementById('stat-badges').textContent   = badges.filter(b=>b.status==='active').length;
+        document.getElementById('stat-events').textContent   = events.length;
+        document.getElementById('stat-messages').textContent = msgs.filter(m=>m.status==='active').length;
+    } catch(e) { /* silently ignore */ }
+}
+
+/* ═══════════════════════════════════════════════
+   USERS TAB
+═══════════════════════════════════════════════ */
+async function loadUsersTab() {
+    try {
+        const [personsRes, badgesRes] = await Promise.all([
+            fetch('/api/persons'),
+            fetch('/api/badges')
+        ]);
+        allPersonsCache = await personsRes.json();
+        const badges    = await badgesRes.json();
+        renderUsersTable(allPersonsCache, badges);
+
+        // Sidebar badges
+        const badgesContainer = document.getElementById('badges-list-container');
+        badgesContainer.innerHTML = '';
+        const activeBadges = badges.filter(b => b.status === 'active');
+        if (activeBadges.length === 0) {
+            badgesContainer.innerHTML = '<p class="text-slate-600 text-xs text-center py-4">Няма активни баджове</p>';
+        }
+        activeBadges.forEach(b => {
+            badgesContainer.insertAdjacentHTML('beforeend', `
+                <div class="flex justify-between items-center p-2.5 bg-black/30 border border-slate-800 rounded text-xs">
+                    <div>
+                        <p class="font-bold text-slate-200">${b.person_name}</p>
+                        <p class="mono text-[10px] text-slate-600 select-all">${b.token_hash.slice(0,18)}…</p>
+                    </div>
+                    <span class="tag tag-green">ACTIVE</span>
+                </div>
+            `);
+        });
+
+        loadStats();
+    } catch(e) {
+        toast('Грешка при зареждане на потребители', 'error');
+    }
+}
+
+function renderUsersTable(persons, badges) {
+    const tbody = document.getElementById('users-table-body');
+    if (persons.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Няма потребители</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    persons.forEach(p => {
+        const userBadges = badges ? badges.filter(b => b.person_id === p.id) : [];
+        const activeBadge = userBadges.find(b => b.status === 'active');
+        let badgeCell = '<span class="text-slate-600 text-[10px]">Няма</span>';
+        let badgeActions = '';
+        if (activeBadge) {
+            badgeCell = '<span class="tag tag-green">Активен</span>';
+            badgeActions = `
+                <button onclick="changeBadgeStatus(${activeBadge.id},'lost')" class="btn btn-yellow btn-sm">ИЗГУБЕН</button>
+                <button onclick="changeBadgeStatus(${activeBadge.id},'disabled')" class="btn btn-red btn-sm">СПРИ</button>
+            `;
+        } else if (userBadges.length > 0) {
+            const lost = userBadges.filter(b=>b.status==='lost').length;
+            badgeCell = `<span class="tag tag-red">Липсва${lost>0?' ('+lost+'✕)':''}</span>`;
+        }
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr data-name="${p.full_name.toLowerCase()}">
+                <td class="mono text-slate-600">${p.id}</td>
+                <td class="font-bold text-slate-100">${p.full_name}</td>
+                <td>${formatRoleTag(p.role)}</td>
+                <td class="text-slate-400">${p.class_name || '—'}</td>
+                <td>${formatStatusTag(p.active)}</td>
+                <td>${badgeCell}</td>
+                <td class="text-right">
+                    <div class="flex items-center justify-end gap-1.5 flex-wrap">
+                        ${badgeActions}
+                        <button onclick="generateNewBadgeForUser(${p.id},'${p.full_name.replace(/'/g,"\\'")}')" class="btn btn-c btn-sm">НОВ БАДЖ</button>
+                        <button onclick="togglePersonStatus(${p.id},${p.active})" class="btn ${p.active?'btn-red':'btn-a'} btn-sm">
+                            ${p.active?'СПРИ':'АКТИВИРАЙ'}
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `);
+    });
+}
+
+function filterUsers(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('#users-table-body tr[data-name]').forEach(row => {
+        row.style.display = row.dataset.name.includes(q) ? '' : 'none';
+    });
+}
+
+async function addNewUser() {
+    const name = document.getElementById('add-user-name').value.trim();
+    const role = document.getElementById('add-user-role').value;
+    const className = document.getElementById('add-user-class').value.trim();
+
+    if (!name) { toast('Моля въведете пълно име!', 'warn'); return; }
+
+    try {
+        const res = await fetch('/api/persons', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ full_name: name, role, class_name: role==='student'?className:null })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('add-user-name').value = '';
+            document.getElementById('add-user-class').value = '';
+            toast(`Потребителят ${name} е регистриран!`, 'success');
+            loadUsersTab();
+        } else {
+            toast(data.detail || 'Грешка при регистрация', 'error');
+        }
+    } catch(e) { toast('Мрежова грешка', 'error'); }
+}
+
+function toggleAddClass() {
+    const role = document.getElementById('add-user-role').value;
+    const inp = document.getElementById('add-user-class');
+    inp.disabled = role !== 'student';
+    inp.style.opacity = role !== 'student' ? '0.4' : '1';
+}
+
+async function togglePersonStatus(personId, currentActive) {
+    try {
+        const res = await fetch(`/api/persons/${personId}/status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: !currentActive })
+        });
+        if (res.ok) {
+            toast(currentActive ? 'Профилът е деактивиран.' : 'Профилът е активиран.', 'info');
             loadUsersTab();
         }
+    } catch(e) { toast('Грешка', 'error'); }
+}
 
-        // Helpers
-        function formatRole(role) {
-            const roles = {
-                student: 'Ученик',
-                teacher: 'Учител',
-                admin: 'Админ',
-                guest: 'Гост'
-            };
-            return roles[role] || role;
+async function changeBadgeStatus(badgeId, newStatus) {
+    try {
+        const res = await fetch(`/api/badges/${badgeId}/status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+        if (res.ok) {
+            toast(`Баджът е маркиран като "${newStatus}"`, 'info');
+            loadUsersTab();
         }
+    } catch(e) { toast('Грешка', 'error'); }
+}
 
-        function formatDate(isoStr) {
-            if (!isoStr) return '-';
-            const d = new Date(isoStr);
-            return d.toLocaleString('bg-BG');
+async function generateNewBadgeForUser(personId, userName) {
+    if (!confirm(`Генериране на нов QR за ${userName}? Предишните баджове ще бъдат анулирани.`)) return;
+    try {
+        const res = await fetch(`/api/persons/${personId}/badge`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showQRModal(userName, data.token);
+            toast(`Нов бадж генериран за ${userName}`, 'success');
+            loadUsersTab();
         }
+    } catch(e) { toast('Грешка при генериране на бадж', 'error'); }
+}
 
-        // ================= USERS & BADGES LOGIC =================
-        let allPersons = [];
+function showQRModal(userName, token) {
+    document.getElementById('qr-modal-user').textContent = userName;
+    document.getElementById('qr-modal-token').textContent = token;
+    QRCode.toCanvas(document.getElementById('qr-canvas'), token, { width:180, margin:1 }, e => { if(e) console.error(e); });
+    document.getElementById('qr-modal').classList.remove('hidden');
+}
+function closeQRModal() { document.getElementById('qr-modal').classList.add('hidden'); }
 
-        async function loadUsersTab() {
-            try {
-                const res = await fetch('/api/persons');
-                allPersons = await res.json();
-                
-                const tableBody = document.getElementById('users-table-body');
-                tableBody.innerHTML = '';
-                
-                // Get badges to find active badges
-                const badgesRes = await fetch('/api/badges');
-                const badges = await badgesRes.json();
-                
-                allPersons.forEach(p => {
-                    // Find active badge for this user
-                    const userBadges = badges.filter(b => b.person_id === p.id);
-                    const activeBadge = userBadges.find(b => b.status === 'active');
-                    
-                    let badgeInfo = '<span class="text-slate-600">Няма</span>';
-                    let badgeActions = '';
-                    
-                    if (activeBadge) {
-                        badgeInfo = `<span class="text-green-500 font-mono font-bold">Активен</span>`;
-                        badgeActions = `
-                            <button onclick="changeBadgeStatus(${activeBadge.id}, 'lost')" class="px-2 py-1 bg-yellow-900/40 text-yellow-400 border border-yellow-700/30 hover:bg-yellow-900/60 text-[10px] rounded transition-all mr-1">
-                                ИЗГУБЕН
-                            </button>
-                            <button onclick="changeBadgeStatus(${activeBadge.id}, 'disabled')" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all mr-1">
-                                СПРИ
-                            </button>
-                        `;
-                    } else if (userBadges.length > 0) {
-                        const lostCount = userBadges.filter(b => b.status === 'lost').length;
-                        badgeInfo = `<span class="text-red-500 font-mono text-[10px]">Липсва ${lostCount > 0 ? '(Изгубени: ' + lostCount + ')' : ''}</span>`;
-                    }
-                    
-                    const row = `
-                        <tr class="hover:bg-slate-900/20">
-                            <td class="py-3 px-2 font-mono text-slate-500">${p.id}</td>
-                            <td class="py-3 px-2 font-bold">${p.full_name}</td>
-                            <td class="py-3 px-2 text-slate-300">${formatRole(p.role)}</td>
-                            <td class="py-3 px-2 text-slate-400">${p.class_name || '-'}</td>
-                            <td class="py-3 px-2">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${p.active ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}">
-                                    ${p.active ? 'АКТИВЕН' : 'СПРЯН'}
-                                </span>
-                            </td>
-                            <td class="py-3 px-2">${badgeInfo}</td>
-                            <td class="py-3 px-2 text-right">
-                                ${badgeActions}
-                                <button onclick="generateNewBadgeForUser(${p.id}, '${p.full_name}')" class="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] rounded transition-all font-bold mr-1">
-                                    НОВ БАДЖ
-                                </button>
-                                <button onclick="togglePersonStatus(${p.id}, ${p.active})" class="px-2 py-1 border text-[10px] rounded transition-all ${p.active ? 'border-red-900 text-red-400 hover:bg-red-900/20' : 'border-green-900 text-green-400 hover:bg-green-500/10'}">
-                                    ${p.active ? 'ДЕАКТИВИРАЙ' : 'АКТИВИРАЙ'}
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('beforeend', row);
-                });
-                
-                // Load badges sidebar
-                const badgesContainer = document.getElementById('badges-list-container');
-                badgesContainer.innerHTML = '';
-                badges.forEach(b => {
-                    const statusClass = {
-                        active: 'text-green-400',
-                        lost: 'text-yellow-500 animate-pulse',
-                        disabled: 'text-slate-600'
-                    }[b.status] || 'text-slate-400';
-                    
-                    const card = `
-                        <div class="p-2.5 bg-black/40 border border-slate-800 rounded flex justify-between items-center text-xs">
-                            <div>
-                                <p class="font-bold text-slate-200">${b.person_name}</p>
-                                <p class="text-[10px] font-mono text-slate-500 select-all">${b.token_hash.slice(0, 16)}...</p>
-                            </div>
-                            <span class="font-bold text-[10px] uppercase ${statusClass}">${b.status}</span>
-                        </div>
-                    `;
-                    badgesContainer.insertAdjacentHTML('beforeend', card);
-                });
-                
-            } catch (e) {
-                console.error(e);
-            }
+/* ═══════════════════════════════════════════════
+   TIMETABLE TAB
+═══════════════════════════════════════════════ */
+async function loadTimetableTab() {
+    try {
+        const res = await fetch('/api/persons');
+        const persons = await res.json();
+        const userSel = document.getElementById('timetable-user-select');
+        const addSel  = document.getElementById('add-lesson-user');
+        userSel.innerHTML = '<option value="">Избери потребител…</option>';
+        addSel.innerHTML  = '<option value="">Избери…</option>';
+        persons.forEach(p => {
+            const label = `${p.full_name} (${formatRole(p.role)}${p.class_name?' · '+p.class_name:''})`;
+            userSel.add(new Option(label, p.id));
+            addSel.add(new Option(label, p.id));
+        });
+    } catch(e) { toast('Грешка при зареждане', 'error'); }
+}
+
+async function loadUserTimetable() {
+    const personId = document.getElementById('timetable-user-select').value;
+    const tbody = document.getElementById('timetable-table-body');
+    if (!personId) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Изберете потребител…</td></tr>';
+        return;
+    }
+    try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const res = await fetch(`/api/persons/${personId}/timetable?date_str=${todayStr}`);
+        const timetable = await res.json();
+        tbody.innerHTML = '';
+        if (timetable.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Няма записани часове за днес (${todayStr})</td></tr>`;
+            return;
         }
+        timetable.forEach(t => {
+            tbody.insertAdjacentHTML('beforeend', `
+                <tr>
+                    <td class="mono text-slate-400">${todayStr}</td>
+                    <td class="font-bold text-amber-400">${t.period}</td>
+                    <td class="mono text-cyan-400">${t.start_time} – ${t.end_time}</td>
+                    <td class="font-bold text-slate-100">${t.subject}</td>
+                    <td class="text-slate-400">${t.class_name||'—'}</td>
+                    <td class="text-slate-300">${t.room}</td>
+                    <td class="text-right">
+                        <button onclick="deleteLesson(${t.id})" class="btn btn-red btn-sm">ИЗТРИЙ</button>
+                    </td>
+                </tr>
+            `);
+        });
+    } catch(e) { toast('Грешка при зареждане на разписание', 'error'); }
+}
 
-        async function addNewUser() {
-            const name = document.getElementById('add-user-name').value.trim();
-            const role = document.getElementById('add-user-role').value;
-            const className = document.getElementById('add-user-class').value.trim();
-            
-            if (!name) {
-                alert('Моля въведете име!');
-                return;
-            }
-            
-            try {
-                const res = await fetch('/api/persons', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        full_name: name,
-                        role: role,
-                        class_name: role === 'student' ? className : null
-                    })
-                });
-                
-                const data = await res.json();
-                if (data.success) {
-                    document.getElementById('add-user-name').value = '';
-                    document.getElementById('add-user-class').value = '';
-                    loadUsersTab();
-                    alert('Потребителят е регистриран успешно!');
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
+async function addNewLesson() {
+    const personId = document.getElementById('add-lesson-user').value;
+    const dateVal  = document.getElementById('add-lesson-date').value;
+    const period   = document.getElementById('add-lesson-period').value;
+    const start    = document.getElementById('add-lesson-start').value;
+    const end      = document.getElementById('add-lesson-end').value;
+    const subject  = document.getElementById('add-lesson-subject').value;
+    const room     = document.getElementById('add-lesson-room').value;
+    const className= document.getElementById('add-lesson-class').value;
 
-        function toggleAddClass() {
-            const role = document.getElementById('add-user-role').value;
-            const classInput = document.getElementById('add-user-class');
-            if (role === 'student') {
-                classInput.disabled = false;
-                classInput.placeholder = "напр. 9Б";
-                classInput.className = "w-full bg-black/40 border border-slate-700 p-2.5 rounded text-xs text-slate-300 focus:border-fuchsia-500 outline-none";
-            } else {
-                classInput.disabled = true;
-                classInput.placeholder = "Няма";
-                classInput.value = "";
-                classInput.className = "w-full bg-slate-900 border border-slate-800 p-2.5 rounded text-xs text-slate-600 outline-none cursor-not-allowed";
-            }
-        }
-
-        async function togglePersonStatus(personId, currentActive) {
-            try {
-                const res = await fetch(`/api/persons/${personId}/status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ active: !currentActive })
-                });
-                if (res.ok) {
-                    loadUsersTab();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function changeBadgeStatus(badgeId, newStatus) {
-            try {
-                const res = await fetch(`/api/badges/${badgeId}/status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: newStatus })
-                });
-                if (res.ok) {
-                    loadUsersTab();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function generateNewBadgeForUser(personId, userName) {
-            if (!confirm(`Сигурни ли сте, че искате да генерирате нов QR код за ${userName}? Всички предишни баджове за този потребител ще бъдат анулирани.`)) {
-                return;
-            }
-            try {
-                const res = await fetch(`/api/persons/${personId}/badge`, { method: 'POST' });
-                const data = await res.json();
-                if (data.success) {
-                    showQRModal(userName, data.token);
-                    loadUsersTab();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        // QR Code Modal Visualizer
-        function showQRModal(userName, token) {
-            document.getElementById('qr-modal-user').innerText = userName;
-            document.getElementById('qr-modal-token').innerText = token;
-            
-            const canvas = document.getElementById('qr-canvas');
-            QRCode.toCanvas(canvas, token, {
-                width: 200,
-                margin: 1,
-                color: {
-                    dark: '#000000',
-                    light: '#ffffff'
-                }
-            }, function (error) {
-                if (error) console.error(error);
+    if (!personId||!dateVal||!period||!start||!end||!subject||!room) {
+        toast('Моля попълнете всички задължителни полета!', 'warn');
+        return;
+    }
+    try {
+        const res = await fetch('/api/timetable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                person_id: parseInt(personId), date: dateVal,
+                period: parseInt(period), start_time: start, end_time: end,
+                subject, class_name: className||null, room
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            toast('Часът е записан успешно!', 'success');
+            document.getElementById('add-lesson-period').value = parseInt(period)+1;
+            ['add-lesson-start','add-lesson-end','add-lesson-subject','add-lesson-room','add-lesson-class'].forEach(id => {
+                document.getElementById(id).value = '';
             });
-            
-            document.getElementById('qr-modal').classList.remove('hidden');
+            if (document.getElementById('timetable-user-select').value == personId) loadUserTimetable();
+        } else { toast(data.detail || 'Грешка', 'error'); }
+    } catch(e) { toast('Мрежова грешка', 'error'); }
+}
+
+async function deleteLesson(recordId) {
+    if (!confirm('Изтриване на часа от разписанието?')) return;
+    try {
+        const res = await fetch(`/api/timetable/${recordId}`, { method: 'DELETE' });
+        if (res.ok) { toast('Часът е изтрит.', 'info'); loadUserTimetable(); }
+    } catch(e) { toast('Грешка', 'error'); }
+}
+
+/* ═══════════════════════════════════════════════
+   EVENTS TAB
+═══════════════════════════════════════════════ */
+async function loadEventsTab() {
+    try {
+        const res = await fetch('/api/events');
+        allEventsCache = await res.json();
+        renderEventsTable(allEventsCache);
+        loadStats();
+    } catch(e) { toast('Грешка при зареждане на събития', 'error'); }
+}
+
+function renderEventsTable(events) {
+    const tbody = document.getElementById('events-table-body');
+    if (events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Няма записани събития</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    events.forEach(e => {
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr data-title="${e.title.toLowerCase()}">
+                <td class="mono text-slate-600">${e.id}</td>
+                <td class="font-bold text-slate-100">${e.title}</td>
+                <td class="mono text-cyan-400 text-[11px]">${formatDate(e.start_time)}</td>
+                <td class="mono text-cyan-400 text-[11px]">${formatDate(e.end_time)}</td>
+                <td><span class="tag tag-purple">${e.target_group||'All'}</span></td>
+                <td class="text-slate-300">${e.room||'—'}</td>
+                <td class="text-right">
+                    <button onclick="deleteEvent(${e.id})" class="btn btn-red btn-sm">ИЗТРИЙ</button>
+                </td>
+            </tr>
+        `);
+    });
+}
+
+function filterEvents(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('#events-table-body tr[data-title]').forEach(row => {
+        row.style.display = row.dataset.title.includes(q) ? '' : 'none';
+    });
+}
+
+async function addNewEvent() {
+    const title = document.getElementById('add-event-title').value.trim();
+    const desc  = document.getElementById('add-event-desc').value.trim();
+    const start = document.getElementById('add-event-start').value;
+    const end   = document.getElementById('add-event-end').value;
+    const group = document.getElementById('add-event-group').value.trim();
+    const room  = document.getElementById('add-event-room').value.trim();
+
+    if (!title||!start||!end) { toast('Заглавие и начален/краен час са задължителни!', 'warn'); return; }
+    try {
+        const res = await fetch('/api/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, description: desc||null, start_time: start, end_time: end,
+                target_group: group||'All', room: room||null })
+        });
+        const data = await res.json();
+        if (data.success) {
+            toast('Събитието е публикувано!', 'success');
+            ['add-event-title','add-event-desc','add-event-start','add-event-end','add-event-group','add-event-room'].forEach(id => {
+                document.getElementById(id).value = '';
+            });
+            loadEventsTab();
         }
+    } catch(e) { toast('Мрежова грешка', 'error'); }
+}
 
-        function closeQRModal() {
-            document.getElementById('qr-modal').classList.add('hidden');
-        }
+async function deleteEvent(eventId) {
+    if (!confirm('Изтриване на събитието?')) return;
+    try {
+        const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
+        if (res.ok) { toast('Събитието е изтрито.', 'info'); loadEventsTab(); }
+    } catch(e) { toast('Грешка', 'error'); }
+}
 
+/* ═══════════════════════════════════════════════
+   MESSAGES TAB
+═══════════════════════════════════════════════ */
+async function loadMessagesTab() {
+    try {
+        const res = await fetch('/api/messages');
+        allMessagesCache = await res.json();
+        renderMessagesTable(allMessagesCache);
+    } catch(e) { toast('Грешка при зареждане на поща', 'error'); }
+}
 
-        // ================= TIMETABLE LOGIC =================
-        async function loadTimetableTab() {
-            // Load dropdowns for users
-            try {
-                const res = await fetch('/api/persons');
-                const persons = await res.json();
-                
-                const userSelect = document.getElementById('timetable-user-select');
-                const addSelect = document.getElementById('add-lesson-user');
-                
-                userSelect.innerHTML = '<option value="">Избери потребител...</option>';
-                addSelect.innerHTML = '<option value="">Избери...</option>';
-                
-                persons.forEach(p => {
-                    const text = `${p.full_name} (${formatRole(p.role)}${p.class_name ? ' - ' + p.class_name : ''})`;
-                    userSelect.add(new Option(text, p.id));
-                    addSelect.add(new Option(text, p.id));
-                });
-                
-            } catch (e) {
-                console.error(e);
-            }
-        }
+function renderMessagesTable(messages) {
+    const tbody = document.getElementById('messages-table-body');
+    if (messages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-600 text-xs">Няма съобщения</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    messages.forEach(m => {
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr data-search="${(m.sender_name+m.recipient_name+m.text).toLowerCase()}">
+                <td class="mono text-slate-600">${m.id}</td>
+                <td class="font-bold text-slate-300">${m.sender_name}</td>
+                <td class="font-bold text-slate-300">${m.recipient_name}</td>
+                <td class="text-slate-100 max-w-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${m.text}">${m.text}</td>
+                <td class="mono text-slate-400 text-[11px]">${formatDate(m.valid_until)}</td>
+                <td class="mono text-slate-400 text-[11px]">${m.delivered_at ? formatDate(m.delivered_at) : '<span class="text-slate-600">—</span>'}</td>
+                <td>${formatMsgStatus(m.status)}</td>
+            </tr>
+        `);
+    });
+}
 
-        async function loadUserTimetable() {
-            const personId = document.getElementById('timetable-user-select').value;
-            const tableBody = document.getElementById('timetable-table-body');
-            
-            if (!personId) {
-                tableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Изберете потребител, за да видите програмата му</td></tr>';
+function filterMessages(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('#messages-table-body tr[data-search]').forEach(row => {
+        row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+    });
+}
+
+/* ═══════════════════════════════════════════════
+   AUDIT LOG TAB
+═══════════════════════════════════════════════ */
+async function loadAuditTab() {
+    const tbody = document.getElementById('audit-table-body');
+    tbody.innerHTML = '<tr><td colspan="4" class="py-6 text-center"><div class="skeleton h-3 w-48 mx-auto"></div></td></tr>';
+    try {
+        const res = await fetch('/api/admin/audit?limit=200');
+        if (!res.ok) {
+            if (res.status === 403 || res.status === 401) {
+                toast('Нямате достъп до одит журнала. Влезте като администратор.', 'error');
+                tbody.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-red-500 text-xs">⛔ Недостатъчни права</td></tr>';
                 return;
             }
-            
-            try {
-                // We will load timetable for the selected user.
-                // Since our timetable is date-specific in db, let's load for today and display the records.
-                // We'll show today's program. In admin, let's fetch timetable for today.
-                const todayStr = new Date().toISOString().split('T')[0];
-                const res = await fetch(`/api/persons/${personId}/timetable?date_str=2026-07-10`); // Test date is 2026-07-10
-                const timetable = await res.json();
-                
-                tableBody.innerHTML = '';
-                if (timetable.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="7" class="py-6 text-center text-slate-500">Няма записани часове в програмата на този потребител за 10 Юли 2026</td></tr>';
-                    return;
-                }
-                
-                timetable.forEach(t => {
-                    const row = `
-                        <tr class="hover:bg-slate-900/20">
-                            <td class="py-3 px-2 font-mono">2026-07-10</td>
-                            <td class="py-3 px-2 font-bold">${t.period}</td>
-                            <td class="py-3 px-2 font-mono text-cyan-400">${t.start_time} - ${t.end_time}</td>
-                            <td class="py-3 px-2 font-bold text-slate-100">${t.subject}</td>
-                            <td class="py-3 px-2 text-slate-400">${t.class_name || '-'}</td>
-                            <td class="py-3 px-2 text-slate-300">${t.room}</td>
-                            <td class="py-3 px-2 text-right">
-                                <button onclick="deleteLesson(${t.id})" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all">
-                                    ИЗТРИЙ
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('beforeend', row);
-                });
-            } catch (e) {
-                console.error(e);
-            }
+            throw new Error(res.statusText);
         }
+        allAuditCache = await res.json();
+        renderAuditTable(allAuditCache);
+    } catch(e) {
+        toast('Грешка при зареждане на одит журнала', 'error');
+        tbody.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-slate-600 text-xs">Грешка при зареждане</td></tr>';
+    }
+}
 
-        async function addNewLesson() {
-            const personId = document.getElementById('add-lesson-user').value;
-            const dateVal = document.getElementById('add-lesson-date').value;
-            const period = document.getElementById('add-lesson-period').value;
-            const start = document.getElementById('add-lesson-start').value;
-            const end = document.getElementById('add-lesson-end').value;
-            const subject = document.getElementById('add-lesson-subject').value;
-            const room = document.getElementById('add-lesson-room').value;
-            const className = document.getElementById('add-lesson-class').value;
-            
-            if (!personId || !dateVal || !period || !start || !end || !subject || !room) {
-                alert('Моля попълнете всички задължителни полета!');
-                return;
-            }
-            
-            try {
-                const res = await fetch('/api/timetable', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        person_id: parseInt(personId),
-                        date: dateVal,
-                        period: parseInt(period),
-                        start_time: start,
-                        end_time: end,
-                        subject: subject,
-                        class_name: className || null,
-                        room: room
-                    })
-                });
-                
-                const data = await res.json();
-                if (data.success) {
-                    alert('Часът е записан успешно!');
-                    // Reset some fields
-                    document.getElementById('add-lesson-period').value = parseInt(period) + 1;
-                    document.getElementById('add-lesson-start').value = '';
-                    document.getElementById('add-lesson-end').value = '';
-                    document.getElementById('add-lesson-subject').value = '';
-                    document.getElementById('add-lesson-room').value = '';
-                    document.getElementById('add-lesson-class').value = '';
-                    
-                    // Reload table if current user is active
-                    if (document.getElementById('timetable-user-select').value === personId) {
-                        loadUserTimetable();
-                    }
-                } else {
-                    alert('Грешка: ' + data.detail);
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
+function renderAuditTable(events) {
+    const tbody = document.getElementById('audit-table-body');
+    if (events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-slate-600 text-xs">Няма записи</td></tr>';
+        return;
+    }
+    tbody.innerHTML = '';
+    events.forEach((ev, idx) => {
+        const typeClass = 'audit-' + ev.event_type.replace(/_/g,'-');
+        const metaStr = ev.metadata && Object.keys(ev.metadata).length > 0
+            ? Object.entries(ev.metadata).map(([k,v]) => `<span class="text-slate-500">${k}:</span> <span class="text-slate-300">${v}</span>`).join('  ')
+            : '<span class="text-slate-700">—</span>';
+        tbody.insertAdjacentHTML('beforeend', `
+            <tr>
+                <td class="mono text-slate-600">${events.length - idx}</td>
+                <td class="${typeClass} font-bold mono text-[11px]">${ev.event_type}</td>
+                <td class="mono text-slate-400 text-[11px] whitespace-nowrap">${formatDate(ev.timestamp)}</td>
+                <td class="mono text-[10px] max-w-md" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${JSON.stringify(ev.metadata)}">${metaStr}</td>
+            </tr>
+        `);
+    });
+}
 
-        async function deleteLesson(recordId) {
-            if (!confirm('Сигурни ли сте, че искате да изтриете този час от разписанието?')) return;
-            try {
-                const res = await fetch(`/api/timetable/${recordId}`, { method: 'DELETE' });
-                if (res.ok) {
-                    loadUserTimetable();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
+function filterAudit() {
+    const type = document.getElementById('audit-filter-type').value;
+    const filtered = type ? allAuditCache.filter(e => e.event_type === type) : allAuditCache;
+    renderAuditTable(filtered);
+}
 
-
-        // ================= EVENTS LOGIC =================
-        async function loadEventsTab() {
-            try {
-                const res = await fetch('/api/events');
-                const events = await res.json();
-                
-                const tableBody = document.getElementById('events-table-body');
-                tableBody.innerHTML = '';
-                
-                events.forEach(e => {
-                    const row = `
-                        <tr class="hover:bg-slate-900/20">
-                            <td class="py-3 px-2 font-mono text-slate-500">${e.id}</td>
-                            <td class="py-3 px-2 font-bold">${e.title}</td>
-                            <td class="py-3 px-2 text-slate-400 max-w-xs truncate">${e.description || '-'}</td>
-                            <td class="py-3 px-2 font-mono text-cyan-400">${formatDate(e.start_time)}</td>
-                            <td class="py-3 px-2 font-mono text-cyan-400">${formatDate(e.end_time)}</td>
-                            <td class="py-3 px-2 text-slate-300 font-bold">${e.target_group || 'All'}</td>
-                            <td class="py-3 px-2 text-slate-300">${e.room || '-'}</td>
-                            <td class="py-3 px-2 text-right">
-                                <button onclick="deleteEvent(${e.id})" class="px-2 py-1 bg-red-950 text-red-400 border border-red-900/50 hover:bg-red-900 text-[10px] rounded transition-all">
-                                    ИЗТРИЙ
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('beforeend', row);
-                });
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function addNewEvent() {
-            const title = document.getElementById('add-event-title').value.trim();
-            const desc = document.getElementById('add-event-desc').value.trim();
-            const start = document.getElementById('add-event-start').value;
-            const end = document.getElementById('add-event-end').value;
-            const group = document.getElementById('add-event-group').value.trim();
-            const room = document.getElementById('add-event-room').value.trim();
-            
-            if (!title || !start || !end) {
-                alert('Моля попълнете заглавие и начален/краен час!');
-                return;
-            }
-            
-            try {
-                const res = await fetch('/api/events', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        title: title,
-                        description: desc || null,
-                        start_time: start,
-                        end_time: end,
-                        target_group: group || 'All',
-                        room: room || null
-                    })
-                });
-                
-                const data = await res.json();
-                if (data.success) {
-                    alert('Събитието е публикувано успешно!');
-                    document.getElementById('add-event-title').value = '';
-                    document.getElementById('add-event-desc').value = '';
-                    document.getElementById('add-event-start').value = '';
-                    document.getElementById('add-event-end').value = '';
-                    document.getElementById('add-event-group').value = '';
-                    document.getElementById('add-event-room').value = '';
-                    loadEventsTab();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function deleteEvent(eventId) {
-            if (!confirm('Сигурни ли сте, че искате да изтриете това събитие?')) return;
-            try {
-                const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
-                if (res.ok) {
-                    loadEventsTab();
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-
-        // ================= MESSAGES LOGIC =================
-        async function loadMessagesTab() {
-            try {
-                const res = await fetch('/api/messages');
-                const messages = await res.json();
-                
-                const tableBody = document.getElementById('messages-table-body');
-                tableBody.innerHTML = '';
-                
-                messages.forEach(m => {
-                    const statusColors = {
-                        active: 'bg-green-500/10 text-green-400 border border-green-500/20',
-                        delivered: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20',
-                        expired: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
-                        deleted: 'bg-red-500/10 text-red-400 border border-red-500/20'
-                    };
-                    const statusClass = statusColors[m.status] || 'bg-slate-500/10 text-slate-400';
-                    
-                    const row = `
-                        <tr class="hover:bg-slate-900/20">
-                            <td class="py-3 px-2 font-mono text-slate-500">${m.id}</td>
-                            <td class="py-3 px-2 font-bold text-slate-300">${m.sender_name}</td>
-                            <td class="py-3 px-2 font-bold text-slate-300">${m.recipient_name}</td>
-                            <td class="py-3 px-2 text-slate-100 max-w-sm font-sans">${m.text}</td>
-                            <td class="py-3 px-2 font-mono text-slate-400">${formatDate(m.valid_until)}</td>
-                            <td class="py-3 px-2 font-mono text-slate-400">${formatDate(m.delivered_at)}</td>
-                            <td class="py-3 px-2">
-                                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${statusClass}">
-                                    ${m.status.toUpperCase()}
-                                </span>
-                            </td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('beforeend', row);
-                });
-            } catch (e) {
-                console.error(e);
-            }
-        }
-
-        // Initialize Authentication Check
-        checkAuth();
-    </script>
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+checkAuth();
+</script>
 </body>
 </html>

@@ -2,10 +2,12 @@ import uvicorn
 import os
 import json
 import asyncio
-from fastapi import FastAPI, Response, Request, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import FastAPI, Response, Request, UploadFile, File, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
+from engine.csrf import generate_csrf_token, verify_csrf_token, CSRF_COOKIE_NAME
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
+from engine.auth import verify_password, create_access_token
 import threading
 import time
 from typing import List, Optional
@@ -23,10 +25,39 @@ from engine.llm_manager import LLMManager
 
 app = FastAPI(title="School AI Control Panel")
 
+# ─── Security Headers middleware ───
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
+
+# ─── CSRF Protection middleware ───
+# Login endpoint is exempt from CSRF (it sets up the session)
+_CSRF_EXEMPT_PATHS = {"/api/admin/login"}
+
+@app.middleware("http")
+async def csrf_protect(request: Request, call_next):
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        if request.url.path not in _CSRF_EXEMPT_PATHS:
+            if not verify_csrf_token(request):
+                raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    response = await call_next(request)
+    if request.method in ("GET", "HEAD"):
+        token = request.cookies.get(CSRF_COOKIE_NAME)
+        if not token:
+            token = generate_csrf_token()
+        response.set_cookie(key=CSRF_COOKIE_NAME, value=token, httponly=False, samesite="strict")
+    return response
+
 # Инициализиране на LLM
 llm_manager = LLMManager()
 
-# Настройка на връзката с базата данни
+# ─── Database setup ───
 DATABASE_URL = "sqlite:///data/school_ai.db"
 db_engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
@@ -37,6 +68,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# ─── Auth dependencies (built after get_db is defined) ───
+from engine.dependencies import _make_require_admin  # noqa: E402
+require_admin = _make_require_admin(get_db)
 
 # Pydantic схеми за API заявки и отговори
 class QRDetectionRequest(BaseModel):
@@ -131,8 +166,62 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
+async def admin(request: Request):
     return templates.TemplateResponse("admin.html", {"request": request})
+
+class AdminLoginRequest(BaseModel):
+    full_name: str
+    password: str
+
+@app.post("/api/admin/login")
+async def admin_login(request: Request, login_data: Optional[AdminLoginRequest] = None,
+                      full_name: Optional[str] = None, password: Optional[str] = None,
+                      db: Session = Depends(get_db)):
+    """Admin login endpoint — accepts either JSON body or query params."""
+    # Resolve credentials from body or query params
+    username = (login_data.full_name if login_data else None) or full_name
+    pwd      = (login_data.password  if login_data else None) or password
+
+    if not username or not pwd:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="full_name and password are required")
+
+    user = db.query(Person).filter(Person.full_name == username).first()
+
+    # Security: always check password even if user is not found (prevent timing attacks)
+    if not user or not user.password_hash or not verify_password(pwd, user.password_hash):
+        # Log failed attempt
+        sys_event = SystemEvent(
+            event_type="admin_login_failed",
+            timestamp=datetime.utcnow(),
+            metadata_json=json.dumps({"attempted_user": username}, ensure_ascii=False)
+        )
+        db.add(sys_event)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Невалидно потребителско име или парола")
+
+    if user.role not in ("admin", "teacher"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Нямате права за администраторски достъп")
+
+    from datetime import timedelta
+    access_token = create_access_token(
+        data={"sub": user.id, "role": user.role, "name": user.full_name},
+        expires_delta=timedelta(hours=8)
+    )
+
+    # Log successful login
+    sys_event = SystemEvent(
+        event_type="admin_login_success",
+        person_id=user.id,
+        timestamp=datetime.utcnow(),
+        metadata_json=json.dumps({"user": user.full_name, "role": user.role}, ensure_ascii=False)
+    )
+    db.add(sys_event)
+    db.commit()
+
+    return {"access_token": access_token, "token_type": "bearer", "role": user.role, "name": user.full_name}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -536,61 +625,6 @@ async def list_persons(role: Optional[str] = None, db: Session = Depends(get_db)
         "active": p.active
     } for p in persons]
 
-@app.get("/api/persons/{person_id}/timetable")
-async def get_timetable(person_id: int, date_str: Optional[str] = None, db: Session = Depends(get_db)):
-    """
-    Връща училищната програма на даден потребител за определена дата.
-    """
-    target_date = date.today()
-    if date_str:
-        try:
-            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Невалиден формат на дата. Използвайте ГГГГ-ММ-ДД")
-            
-    timetable = db.query(Timetable).filter(
-        Timetable.person_id == person_id,
-        Timetable.date == target_date
-    ).order_by(Timetable.period).all()
-    
-    return [{
-        "period": t.period,
-        "subject": t.subject,
-        "room": t.room,
-        "start_time": t.start_time.strftime("%H:%M"),
-        "end_time": t.end_time.strftime("%H:%M"),
-        "class_name": t.class_name
-    } for t in timetable]
-
-@app.get("/api/cameras")
-async def list_cameras(db: Session = Depends(get_db)):
-    """
-    Връща списък с всички камери.
-    """
-    cams = db.query(Camera).all()
-    return [{
-        "id": c.id,
-        "name": c.name,
-        "zone_id": c.zone_id,
-        "active": c.active,
-        "interaction_point_id": c.interaction_point_id
-    } for c in cams]
-
-@app.get("/api/interaction_points")
-async def list_interaction_points(db: Session = Depends(get_db)):
-    """
-    Връща списък с всички интерактивни точки.
-    """
-    pts = db.query(InteractionPoint).all()
-    return [{
-        "id": p.id,
-        "name": p.name,
-        "zone_id": p.zone_id,
-        "type": p.type,
-        "screen_id": p.screen_id,
-        "active": p.active
-    } for p in pts]
-
 # ==========================================
 # АДМИНИСТРАТИВНИ API АДРЕСИ (ЕТАП 9 & 10)
 # ==========================================
@@ -609,8 +643,20 @@ async def get_all_events(db: Session = Depends(get_db)):
         "room": e.room
     } for e in events]
 
+# ---------- Admin Audit Log Endpoint ----------
+@app.get("/api/admin/audit")
+async def get_audit_logs(limit: int = 100, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
+    """Return recent system events for admin audit view"""
+    events = db.query(SystemEvent).order_by(SystemEvent.timestamp.desc()).limit(limit).all()
+    return [{
+        "id": ev.id,
+        "event_type": ev.event_type,
+        "timestamp": ev.timestamp.isoformat(),
+        "metadata": json.loads(ev.metadata_json) if ev.metadata_json else {}
+    } for ev in events]
+
 @app.post("/api/events")
-async def create_event(request: EventCreateRequest, db: Session = Depends(get_db)):
+async def create_event(request: EventCreateRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Създава ново събитие """
     event = Event(
         title=request.title,
@@ -636,7 +682,7 @@ async def create_event(request: EventCreateRequest, db: Session = Depends(get_db
     return {"success": True, "event_id": event.id}
 
 @app.delete("/api/events/{event_id}")
-async def delete_event(event_id: int, db: Session = Depends(get_db)):
+async def delete_event(event_id: int, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Изтрива събитие """
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
@@ -655,7 +701,7 @@ async def delete_event(event_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 @app.post("/api/timetable")
-async def create_timetable_record(request: TimetableCreateRequest, db: Session = Depends(get_db)):
+async def create_timetable_record(request: TimetableCreateRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Добавя нов запис в разписанието """
     try:
         st = datetime.strptime(request.start_time, "%H:%M").time()
@@ -689,7 +735,7 @@ async def create_timetable_record(request: TimetableCreateRequest, db: Session =
     return {"success": True, "record_id": record.id}
 
 @app.delete("/api/timetable/{record_id}")
-async def delete_timetable_record(record_id: int, db: Session = Depends(get_db)):
+async def delete_timetable_record(record_id: int, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Изтрива запис от разписанието """
     record = db.query(Timetable).filter(Timetable.id == record_id).first()
     if not record:
@@ -721,7 +767,7 @@ async def get_all_badges(db: Session = Depends(get_db)):
     } for b in badges]
 
 @app.post("/api/persons/{person_id}/badge")
-async def generate_badge(person_id: int, db: Session = Depends(get_db)):
+async def generate_badge(person_id: int, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Генерира нов активен QR бадж за даден потребител и деактивира старите """
     import uuid
     person = db.query(Person).filter(Person.id == person_id).first()
@@ -761,7 +807,7 @@ async def generate_badge(person_id: int, db: Session = Depends(get_db)):
     }
 
 @app.post("/api/badges/{badge_id}/status")
-async def update_badge_status(badge_id: int, request: BadgeStatusRequest, db: Session = Depends(get_db)):
+async def update_badge_status(badge_id: int, request: BadgeStatusRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Сменя статуса на бадж (напр. отбелязване на изгубен) """
     badge = db.query(Badge).filter(Badge.id == badge_id).first()
     if not badge:
@@ -785,7 +831,7 @@ async def update_badge_status(badge_id: int, request: BadgeStatusRequest, db: Se
     return {"success": True, "badge_id": badge.id, "status": badge.status}
 
 @app.post("/api/persons/{person_id}/status")
-async def update_person_status(person_id: int, request: PersonStatusRequest, db: Session = Depends(get_db)):
+async def update_person_status(person_id: int, request: PersonStatusRequest, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Активира или деактивира потребителски профил """
     person = db.query(Person).filter(Person.id == person_id).first()
     if not person:
@@ -805,7 +851,7 @@ async def update_person_status(person_id: int, request: PersonStatusRequest, db:
     return {"success": True, "person_id": person.id, "active": person.active}
 
 @app.delete("/api/persons/{person_id}")
-async def delete_person(person_id: int, db: Session = Depends(get_db)):
+async def delete_person(person_id: int, db: Session = Depends(get_db), admin_user: Person = Depends(require_admin)):
     """ Изтрива изцяло потребителски профил (Право на забравяне / GDPR) """
     person = db.query(Person).filter(Person.id == person_id).first()
     if not person:
