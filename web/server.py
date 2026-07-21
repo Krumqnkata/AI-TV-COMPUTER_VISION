@@ -30,6 +30,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI(title="School AI Control Panel")
 
+
 # ─── Security Headers middleware ───
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -113,24 +114,75 @@ class AdminAuth(AuthenticationBackend):
         return token is not None
 
 authentication_backend = AdminAuth(secret_key=ADMIN_SECRET_KEY)
-admin_panel = Admin(app, db_engine, authentication_backend=authentication_backend)
+# ==========================================
+# ИНТЕГРАЦИЯ НА SQLADMIN (ОБНОВЕН ДИЗАЙН И ЛОГИКА)
+# ==========================================
 
+# 1. Задаване на заглавие на панела
+admin_panel = Admin(
+    app, 
+    db_engine, 
+    authentication_backend=authentication_backend,
+    title="🏫 AI Асистент - Училищен Панел",
+)
+
+# --- ПОМОЩНИ ФУНКЦИИ ЗА ФОРМАТИРАНЕ ---
+
+def format_datetime(model, attribute):
+    # Проверяваме дали SQLAdmin подава текст (str) или обект с .key
+    attr_name = attribute if isinstance(attribute, str) else attribute.key
+    val = getattr(model, attr_name, None)
+    return val.strftime("%d.%m.%Y %H:%M") if val else ""
+
+
+def format_person_id(model, attribute):
+    # Проверяваме дали SQLAdmin подава текст (str) или обект с .key
+    attr_name = attribute if isinstance(attribute, str) else attribute.key
+    person_id = getattr(model, attr_name, None)
+    
+    if not person_id:
+        return "-"
+    
+    # Отваряме кратка сесия специално за форматъра
+    db = SessionLocal()
+    try:
+        person = db.get(Person, person_id)
+        if person:
+            return f"{person.full_name} ({person.role})"
+        return f"ID: {person_id}"
+    finally:
+        db.close()
 class PersonAdmin(ModelView, model=Person):
     name = "Потребител"
     name_plural = "Потребители"
     category = "Управление на хора"
     icon = "fa-solid fa-users"
     
+    can_export = True
+    page_size = 50
+    
     column_list = [Person.id, Person.full_name, Person.role, Person.class_name, Person.active]
     column_searchable_list = [Person.full_name]
     column_sortable_list = [Person.role, Person.active]
+    
     
     column_labels = {
         Person.full_name: "Пълно име",
         Person.role: "Роля",
         Person.class_name: "Клас",
         Person.active: "Активен",
-        Person.password_hash: "Парола (за Админ/Учител)"
+        Person.password_hash: "Парола"
+    }
+    
+    # 🌟 НОВО: Красиви формати за роли и статуси
+    column_formatters = {
+        Person.active: lambda m, a: "✅ Да" if m.active else "❌ Не",
+        Person.role: lambda m, a: {
+            "student": "🎓 Ученик", 
+            "teacher": "👨‍🏫 Учител", 
+            "admin": "🛠 Админ", 
+            "guest": "👤 Гост"
+        }.get(m.role, m.role)
     }
     
     form_overrides = {"role": SelectField}
@@ -152,6 +204,264 @@ class PersonAdmin(ModelView, model=Person):
         if 'password_hash' in data and data['password_hash']:
             if not data['password_hash'].startswith('$2b$'):
                 data['password_hash'] = pwd_context.hash(data['password_hash'])
+
+    def is_accessible(self, request: Request) -> bool:
+        return request.session.get("role") == "admin"
+
+
+class BadgeAdmin(ModelView, model=Badge):
+    name = "QR Бадж"
+    name_plural = "QR Баджове"
+    category = "Управление на хора"
+    icon = "fa-solid fa-id-badge"
+    
+    can_export = True
+    page_size = 50
+    
+    column_list = [Badge.id, Badge.person_id, Badge.status, Badge.created_at]
+
+    
+    column_labels = {
+        Badge.person_id: "Собственик",
+        Badge.status: "Статус на баджа",
+        Badge.created_at: "Създаден на"
+    }
+
+    # 🌟 НОВО: Показваме името на човека, а не само ID, и форматираме датата
+    column_formatters = {
+        Badge.person_id: format_person_id,
+        Badge.created_at: format_datetime,
+        Badge.status: lambda m, a: {
+            "active": "🟢 Активен", 
+            "lost": "🔴 Изгубен", 
+            "disabled": "⚫ Спрян"
+        }.get(m.status, m.status)
+    }
+
+    form_excluded_list = [Badge.token_hash, Badge.created_at]
+    column_details_exclude_list = [Badge.token_hash]
+    can_create = False
+
+    form_overrides = {"status": SelectField}
+    form_args = {
+        "status": {
+            "choices": [
+                ("active", "Активен"),
+                ("lost", "Изгубен"),
+                ("disabled", "Деактивиран")
+            ]
+        }
+    }
+
+    def is_accessible(self, request: Request) -> bool:
+        return request.session.get("role") == "admin"
+
+    @action(
+        name="regenerate_token",
+        label="Генерирай нов QR токен",
+        confirmation_message="Старият QR код на баджа ще спре да работи веднага. Продължи?",
+    )
+    async def regenerate_token(self, request: Request):
+        import secrets
+        pks_raw = request.query_params.get("pks", "")
+        cleaned = pks_raw.replace("?pks=", "").replace("pks=", "")
+        
+        db = SessionLocal()
+        results = []
+        try:
+            for pk in cleaned.split(","):
+                pk = pk.strip()
+                if not pk.isdigit(): continue
+                badge = db.get(Badge, int(pk))
+                if not badge: continue
+                
+                new_token = f"SCH-{secrets.token_hex(4).upper()}"
+                badge.token_hash = hash_token(new_token)
+                person = db.get(Person, badge.person_id) if badge.person_id else None
+                results.append({
+                    "badge_id": badge.id,
+                    "person_name": person.full_name if person else "(без собственик)",
+                    "token": new_token,
+                })
+            db.commit()
+        finally:
+            db.close()
+
+        if not results:
+            raise HTTPException(status_code=400, detail="Няма избрани валидни баджове")
+
+        ticket = _store_qr_reveal(results)
+        return RedirectResponse(url=f"/admin/badge/reveal/{ticket}", status_code=302)
+
+
+class EventAdmin(ModelView, model=Event):
+    name = "Събитие"
+    name_plural = "Събития"
+    category = "Училищен живот"
+    icon = "fa-solid fa-calendar-days"
+    
+    column_list = [Event.id, Event.title, Event.start_time, Event.target_group, Event.room]
+    column_searchable_list = [Event.title]
+
+    
+    column_labels = {
+        Event.title: "Заглавие",
+        Event.description: "Описание",
+        Event.start_time: "Начало",
+        Event.end_time: "Край",
+        Event.target_group: "За кого",
+        Event.room: "Зала/Кабинет"
+    }
+    
+    column_formatters = {
+        Event.start_time: format_datetime,
+        Event.end_time: format_datetime
+    }
+
+class TimetableAdmin(ModelView, model=Timetable):
+    name = "Учебен час"
+    name_plural = "Разписание"
+    category = "Училищен живот"
+    icon = "fa-solid fa-clock"
+    page_size = 50
+    can_export = True
+    
+    column_list = [Timetable.id, Timetable.person_id, Timetable.date, Timetable.period, Timetable.subject, Timetable.room]
+    
+    column_labels = {
+        Timetable.person_id: "Учител/Ученик",
+        Timetable.date: "Дата",
+        Timetable.period: "Час (1-8)",
+        Timetable.start_time: "Начало",
+        Timetable.end_time: "Край",
+        Timetable.subject: "Предмет",
+        Timetable.class_name: "Клас",
+        Timetable.room: "Кабинет"
+    }
+
+    column_formatters = {
+        Timetable.person_id: format_person_id
+    }
+
+
+class MessageAdmin(ModelView, model=Message):
+    name = "Съобщение"
+    name_plural = "Виртуална поща"
+    category = "Система"
+    icon = "fa-solid fa-envelope"
+    
+    column_list = [Message.id, Message.sender_id, Message.recipient_id, Message.status, Message.valid_until]
+    
+    
+    column_labels = {
+        Message.sender_id: "Подател",
+        Message.recipient_id: "Получател",
+        Message.status: "Статус",
+        Message.valid_until: "Валидно до"
+    }
+
+    column_formatters = {
+        Message.sender_id: lambda m, a: m.sender.full_name if getattr(m, "sender", None) else m.sender_id,
+        Message.recipient_id: lambda m, a: m.recipient.full_name if getattr(m, "recipient", None) else m.recipient_id,
+        Message.valid_until: format_datetime,
+        Message.status: lambda m, a: {
+            "active": "📩 Чакащо", 
+            "delivered": "✅ Доставено", 
+            "expired": "⏳ Изтекло", 
+            "deleted": "🗑 Изтрито"
+        }.get(m.status, m.status)
+    }
+    
+    form_overrides = {"status": SelectField}
+    form_args = {
+        "status": {
+            "choices": [
+                ("active", "Чакащо (Активно)"),
+                ("delivered", "Доставено"),
+                ("expired", "Изтекло"),
+                ("deleted", "Изтрито")
+            ]
+        }
+    }
+
+
+class InteractionPointAdmin(ModelView, model=InteractionPoint):
+    name = "Интерактивна точка"
+    name_plural = "Интерактивни точки"
+    category = "Инфраструктура"
+    icon = "fa-solid fa-display"
+
+    column_list = [InteractionPoint.id, InteractionPoint.name, InteractionPoint.zone_id,
+                   InteractionPoint.type, InteractionPoint.active]
+    column_labels = {
+        InteractionPoint.name: "Име",
+        InteractionPoint.zone_id: "Зона",
+        InteractionPoint.type: "Тип",
+        InteractionPoint.screen_id: "Свързан екран",
+        InteractionPoint.active: "Активна"
+    }
+    
+    column_formatters = {
+        InteractionPoint.active: lambda m, a: "✅ Онлайн" if m.active else "❌ Офлайн"
+    }
+
+    def is_accessible(self, request: Request) -> bool:
+        return request.session.get("role") == "admin"
+
+
+class CameraAdmin(ModelView, model=Camera):
+    name = "Камера"
+    name_plural = "Камери"
+    category = "Инфраструктура"
+    icon = "fa-solid fa-video"
+
+    column_list = [Camera.id, Camera.name, Camera.zone_id, Camera.active]
+    column_labels = {
+        Camera.name: "Име",
+        Camera.zone_id: "Зона",
+        Camera.interaction_point_id: "Свързана точка",
+        Camera.stream_url: "Локален адрес",
+        Camera.active: "Активна"
+    }
+
+    column_formatters = {
+        Camera.active: lambda m, a: "🎥 Активна" if m.active else "❌ Изключена"
+    }
+
+    def is_accessible(self, request: Request) -> bool:
+        return request.session.get("role") == "admin"
+
+
+class SystemEventAdmin(ModelView, model=SystemEvent):
+    name = "Системно събитие"
+    name_plural = "Логове"
+    category = "Система"
+    icon = "fa-solid fa-list-check"
+    page_size = 100
+
+    column_list = [SystemEvent.id, SystemEvent.event_type, SystemEvent.person_id, SystemEvent.timestamp]
+    
+    
+    column_labels = {
+        SystemEvent.event_type: "Тип събитие",
+        SystemEvent.person_id: "Потребител",
+        SystemEvent.camera_id: "Камера",
+        SystemEvent.interaction_point_id: "Точка",
+        SystemEvent.timestamp: "Време",
+        SystemEvent.metadata_json: "Технически данни"
+    }
+    
+    column_default_sort = [(SystemEvent.timestamp, True)]
+    column_searchable_list = [SystemEvent.event_type]
+
+    column_formatters = {
+        SystemEvent.timestamp: format_datetime,
+        SystemEvent.person_id: format_person_id
+    }
+
+    can_create = False
+    can_edit = False
+    can_delete = False
 
     def is_accessible(self, request: Request) -> bool:
         return request.session.get("role") == "admin"
@@ -217,200 +527,6 @@ def _render_badge_qr_page(results: list) -> str:
     </body>
     </html>
     """
-
-class BadgeAdmin(ModelView, model=Badge):
-    name = "QR Бадж"
-    name_plural = "QR Баджове"
-    category = "Управление на хора"
-    icon = "fa-solid fa-id-badge"
-    
-    column_list = [Badge.id, Badge.person_id, Badge.status, Badge.created_at]
-
-    column_labels = {
-        Badge.person_id: "Собственик (ID)",
-        Badge.status: "Статус на баджа",
-        Badge.created_at: "Създаден на"
-    }
-
-    form_excluded_list = [Badge.token_hash, Badge.created_at]
-    column_details_exclude_list = [Badge.token_hash]
-    can_create = False
-
-    form_overrides = {"status": SelectField}
-    form_args = {
-        "status": {
-            "choices": [
-                ("active", "Активен"),
-                ("lost", "Изгубен"),
-                ("disabled", "Деактивиран")
-            ]
-        }
-    }
-
-    def is_accessible(self, request: Request) -> bool:
-        return request.session.get("role") == "admin"
-
-    @action(
-        name="regenerate_token",
-        label="Генерирай нов QR токен",
-        confirmation_message="Старият QR код на баджа ще спре да работи веднага. Продължи?",
-    )
-    async def regenerate_token(self, request: Request):
-        import secrets
-        pks_raw = request.query_params.get("pks", "")
-        
-        # Почистваме евентуални артефакти като "?pks=" или "pks=" от URL-а
-        cleaned = pks_raw.replace("?pks=", "").replace("pks=", "")
-        
-        db = SessionLocal()
-        results = []
-        try:
-            for pk in cleaned.split(","):
-                pk = pk.strip()
-                if not pk.isdigit():
-                    continue
-                badge = db.get(Badge, int(pk))
-                if not badge:
-                    continue
-                new_token = f"SCH-{secrets.token_hex(4).upper()}"
-                badge.token_hash = hash_token(new_token)
-                person = db.get(Person, badge.person_id) if badge.person_id else None
-                results.append({
-                    "badge_id": badge.id,
-                    "person_name": person.full_name if person else "(без собственик)",
-                    "token": new_token,
-                })
-            db.commit()
-        finally:
-            db.close()
-
-        if not results:
-            raise HTTPException(status_code=400, detail="Няма избрани валидни баджове")
-
-        ticket = _store_qr_reveal(results)
-        return RedirectResponse(url=f"/admin/badge/reveal/{ticket}", status_code=302)
-
-class EventAdmin(ModelView, model=Event):
-    name = "Събитие"
-    name_plural = "Събития"
-    category = "Училищен живот"
-    icon = "fa-solid fa-calendar-days"
-    
-    column_list = [Event.id, Event.title, Event.start_time, Event.room]
-    column_searchable_list = [Event.title]
-    
-    column_labels = {
-        Event.title: "Заглавие",
-        Event.description: "Описание",
-        Event.start_time: "Начало",
-        Event.end_time: "Край",
-        Event.target_group: "За кого",
-        Event.room: "Зала/Кабинет"
-    }
-
-class TimetableAdmin(ModelView, model=Timetable):
-    name = "Учебен час"
-    name_plural = "Разписание"
-    category = "Училищен живот"
-    icon = "fa-solid fa-clock"
-    
-    column_list = [Timetable.id, Timetable.person_id, Timetable.date, Timetable.period, Timetable.subject, Timetable.room]
-    
-    column_labels = {
-        Timetable.person_id: "Учител/Ученик (ID)",
-        Timetable.date: "Дата",
-        Timetable.period: "Пореден час (1-8)",
-        Timetable.start_time: "Начало",
-        Timetable.end_time: "Край",
-        Timetable.subject: "Предмет",
-        Timetable.class_name: "Клас",
-        Timetable.room: "Кабинет"
-    }
-
-class MessageAdmin(ModelView, model=Message):
-    name = "Съобщение"
-    name_plural = "Виртуална поща"
-    category = "Система"
-    icon = "fa-solid fa-envelope"
-    
-    column_list = [Message.id, Message.sender_id, Message.recipient_id, Message.status]
-    
-    form_overrides = {"status": SelectField}
-    form_args = {
-        "status": {
-            "choices": [
-                ("active", "Чакащо (Активно)"),
-                ("delivered", "Доставено"),
-                ("expired", "Изтекло"),
-                ("deleted", "Изтрито")
-            ]
-        }
-    }
-
-class InteractionPointAdmin(ModelView, model=InteractionPoint):
-    name = "Интерактивна точка"
-    name_plural = "Интерактивни точки"
-    category = "Инфраструктура"
-    icon = "fa-solid fa-display"
-
-    column_list = [InteractionPoint.id, InteractionPoint.name, InteractionPoint.zone_id,
-                   InteractionPoint.type, InteractionPoint.active]
-    column_labels = {
-        InteractionPoint.name: "Име",
-        InteractionPoint.zone_id: "Зона",
-        InteractionPoint.type: "Тип",
-        InteractionPoint.screen_id: "Свързан екран",
-        InteractionPoint.active: "Активна"
-    }
-
-    def is_accessible(self, request: Request) -> bool:
-        return request.session.get("role") == "admin"
-
-class CameraAdmin(ModelView, model=Camera):
-    name = "Камера"
-    name_plural = "Камери"
-    category = "Инфраструктура"
-    icon = "fa-solid fa-video"
-
-    column_list = [Camera.id, Camera.name, Camera.zone_id, Camera.interaction_point_id, Camera.active]
-    column_labels = {
-        Camera.name: "Име",
-        Camera.zone_id: "Зона",
-        Camera.interaction_point_id: "Свързана точка",
-        Camera.stream_url: "Локален адрес",
-        Camera.active: "Активна"
-    }
-
-    def is_accessible(self, request: Request) -> bool:
-        return request.session.get("role") == "admin"
-
-class SystemEventAdmin(ModelView, model=SystemEvent):
-    name = "Системно събитие"
-    name_plural = "Логове"
-    category = "Система"
-    icon = "fa-solid fa-list-check"
-
-    column_list = [SystemEvent.id, SystemEvent.event_type, SystemEvent.person_id,
-                   SystemEvent.camera_id, SystemEvent.interaction_point_id, SystemEvent.timestamp]
-    column_labels = {
-        SystemEvent.event_type: "Тип събитие",
-        SystemEvent.person_id: "Потребител",
-        SystemEvent.camera_id: "Камера",
-        SystemEvent.interaction_point_id: "Точка",
-        SystemEvent.timestamp: "Време",
-        SystemEvent.metadata_json: "Данни"
-    }
-    column_default_sort = [(SystemEvent.timestamp, True)]
-    column_searchable_list = [SystemEvent.event_type]
-
-    can_create = False
-    can_edit = False
-    can_delete = False
-
-    def is_accessible(self, request: Request) -> bool:
-        return request.session.get("role") == "admin"
-
-# ТУК ДЕФИНИРАМЕ НОВИЯ КЛАС ЗА СЪЗДАВАНЕ НА БАДЖ
 # ТУК ДЕФИНИРАМЕ НОВИЯ КЛАС ЗА СЪЗДАВАНЕ НА БАДЖ
 class BadgeCreateView(BaseView):
     name = "Създай нов Бадж"
