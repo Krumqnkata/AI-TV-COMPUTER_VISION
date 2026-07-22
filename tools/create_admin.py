@@ -3,26 +3,28 @@ Utility script to create or update an admin user in the School AI database.
 Run this once to set up the admin credentials.
 
 Usage:
-    python tools/create_admin.py --name "Администратор" --password "YourSecurePassword"
+    python tools/create_admin.py --name "Администратор" --username admin
 """
 import argparse
+import getpass
 import sys
-import os
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from sqlalchemy.orm import sessionmaker
-from engine import admin_models as _admin_models  # noqa: F401
 from engine.admin_models import StaffAccount
-from engine.db import Person, init_db
 from engine.auth import get_password_hash
+from engine.db import Person
+from web.database import SessionLocal, assert_schema_current
 from web.services.admin_control import apply_role_codes, ensure_admin_foundation
 
 
 def create_or_update_admin(full_name: str, password: str, role: str = "admin", username: str | None = None):
-    engine = init_db()
-    Session = sessionmaker(bind=engine)
-    db = Session()
+    if len(password) < 12:
+        raise ValueError("Паролата трябва да бъде поне 12 символа.")
+    assert_schema_current()
+    db = SessionLocal()
     try:
         user = db.query(Person).filter(Person.full_name == full_name).first()
         pw_hash = get_password_hash(password)
@@ -59,8 +61,16 @@ def create_or_update_admin(full_name: str, password: str, role: str = "admin", u
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create/update admin user in School AI DB")
     parser.add_argument("--name",     required=True, help="Full name of the user")
-    parser.add_argument("--password", required=True, help="Password for the user")
+    parser.add_argument("--password", default=None, help="Password; omit to enter it without shell history")
     parser.add_argument("--role",     default="admin", choices=["admin", "teacher"])
     parser.add_argument("--username", default=None, help="Separate login name (defaults to the full name)")
     args = parser.parse_args()
-    create_or_update_admin(args.name, args.password, args.role, args.username)
+    password = args.password or getpass.getpass("Нова парола (поне 12 символа): ")
+    if args.password is None:
+        confirmation = getpass.getpass("Повторете паролата: ")
+        if password != confirmation:
+            parser.error("Паролите не съвпадат.")
+    try:
+        create_or_update_admin(args.name, password, args.role, args.username)
+    except (RuntimeError, ValueError) as exc:
+        parser.error(str(exc))

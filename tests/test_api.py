@@ -1,8 +1,4 @@
-"""Isolated API tests.
-
-The database URL is set before importing the application, so this suite can
-never drop or modify ``data/school_ai.db``.
-"""
+"""Isolated API tests backed by an Alembic-built temporary database."""
 
 import os
 import sys
@@ -31,10 +27,16 @@ from alembic import command as alembic_command  # noqa: E402
 from alembic.config import Config as AlembicConfig  # noqa: E402
 from sqlalchemy import create_engine, inspect  # noqa: E402
 
+
+_test_migration_config = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
+alembic_command.upgrade(_test_migration_config, "head")
+
+
 from engine.auth import get_password_hash  # noqa: E402
 from engine.admin_models import DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
-from engine.db import Badge, Base, DeliveryReceipt, Message, Person, SystemEvent, Timetable, hash_token, now_bg, seed_db  # noqa: E402
-from web.database import SessionLocal, db_engine  # noqa: E402
+from engine.db import Badge, Base, DeliveryReceipt, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
+from tests.fixtures import seed_test_data  # noqa: E402
+from web.database import SessionLocal, assert_schema_current, db_engine  # noqa: E402
 from web.security import require_admin  # noqa: E402
 from web.server import app  # noqa: E402
 from web.services.runtime import runtime_registry  # noqa: E402
@@ -54,15 +56,18 @@ from utils.config import Config as AppConfig  # noqa: E402
 
 
 DEVICE_HEADERS = {"X-Device-Key": TEST_DEVICE_KEY}
+LEGACY_TABLE_NAMES = {
+    "persons", "badges", "interaction_points", "cameras", "messages",
+    "timetable", "events", "system_events", "delivery_receipts",
+}
+CONTROL_TABLE_NAMES = {"staff_accounts", "device_nodes", "system_settings"}
 
 
 class TestSchoolAIAPI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        Base.metadata.drop_all(bind=db_engine)
-        Base.metadata.create_all(bind=db_engine)
         cls.db = SessionLocal()
-        seed_db(cls.db)
+        seed_test_data(cls.db)
         cls.admin = cls.db.query(Person).filter(Person.role == "admin").first()
         cls.admin.password_hash = get_password_hash("test-admin-password")
         cls.db.commit()
@@ -396,16 +401,56 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertEqual(self.db.get(DeviceCommand, command.id).status, "acknowledged")
         self.assertIsNotNone(token.used_at)
 
+    def test_fresh_alembic_migration_builds_complete_schema(self):
+        with tempfile.TemporaryDirectory(prefix="school_ai_fresh_migration_") as migration_dir:
+            database_path = Path(migration_dir) / "fresh.db"
+            database_url = f"sqlite:///{database_path.as_posix()}"
+            migration_engine = create_engine(database_url)
+            original_url = AppConfig.DATABASE_URL
+            try:
+                AppConfig.DATABASE_URL = database_url
+                migration_config = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
+                alembic_command.upgrade(migration_config, "head")
+            finally:
+                AppConfig.DATABASE_URL = original_url
+            tables = set(inspect(migration_engine).get_table_names())
+            self.assertTrue(LEGACY_TABLE_NAMES.issubset(tables))
+            self.assertTrue(CONTROL_TABLE_NAMES.issubset(tables))
+            self.assertIn("alembic_version", tables)
+            assert_schema_current(migration_engine)
+            migration_engine.dispose()
+
+    def test_schema_guard_rejects_unmigrated_database(self):
+        with tempfile.TemporaryDirectory(prefix="school_ai_unmigrated_") as migration_dir:
+            database_path = Path(migration_dir) / "empty.db"
+            migration_engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+            with self.assertRaisesRegex(RuntimeError, "alembic upgrade head"):
+                assert_schema_current(migration_engine)
+            migration_engine.dispose()
+
+    def test_existing_head_revision_remains_valid_after_baseline_link(self):
+        with tempfile.TemporaryDirectory(prefix="school_ai_stamped_") as migration_dir:
+            database_path = Path(migration_dir) / "stamped.db"
+            database_url = f"sqlite:///{database_path.as_posix()}"
+            migration_engine = create_engine(database_url)
+            Base.metadata.create_all(migration_engine)
+            original_url = AppConfig.DATABASE_URL
+            try:
+                AppConfig.DATABASE_URL = database_url
+                migration_config = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
+                alembic_command.stamp(migration_config, "20260722_01")
+                alembic_command.upgrade(migration_config, "head")
+            finally:
+                AppConfig.DATABASE_URL = original_url
+            assert_schema_current(migration_engine)
+            migration_engine.dispose()
+
     def test_additive_alembic_migration_preserves_legacy_tables(self):
-        legacy_names = [
-            "persons", "badges", "interaction_points", "cameras", "messages",
-            "timetable", "events", "system_events", "delivery_receipts",
-        ]
         with tempfile.TemporaryDirectory(prefix="school_ai_migration_") as migration_dir:
             database_path = Path(migration_dir) / "legacy.db"
             database_url = f"sqlite:///{database_path.as_posix()}"
             migration_engine = create_engine(database_url)
-            for table_name in legacy_names:
+            for table_name in LEGACY_TABLE_NAMES:
                 Base.metadata.tables[table_name].create(migration_engine, checkfirst=True)
             before = set(inspect(migration_engine).get_table_names())
             original_url = AppConfig.DATABASE_URL
@@ -416,7 +461,7 @@ class TestSchoolAIAPI(unittest.TestCase):
             finally:
                 AppConfig.DATABASE_URL = original_url
             after = set(inspect(migration_engine).get_table_names())
-            self.assertTrue(set(legacy_names).issubset(after))
+            self.assertTrue(LEGACY_TABLE_NAMES.issubset(after))
             self.assertTrue(before.issubset(after))
             self.assertIn("staff_accounts", after)
             self.assertIn("device_nodes", after)

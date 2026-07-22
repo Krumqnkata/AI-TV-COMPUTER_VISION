@@ -1,0 +1,4 @@
+# API tests and local development on top of the core server
+-r requirements.txt
+httpx==0.28.1
+requests==2.34.2
