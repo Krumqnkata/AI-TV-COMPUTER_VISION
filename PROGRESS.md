@@ -2,37 +2,27 @@
 
 **Последна проверка:** 22 юли 2026 г.
 
-## Завършено
+## Текуща стабилна основа
 
-- Възстановени са REST контрактите за persons, timetable, events, badges, messages, cameras и interaction points, премахнати в commit `e21f25e`.
-- SQLAdmin панелът е запазен и отделен в `web/admin_panel.py`.
-- `web/server.py` е намален до application wiring; routes и business logic са разделени в `web/routers/` и `web/services/`.
-- Device endpoints използват `X-Device-Key`; browser POST/PUT/PATCH/DELETE използват реална double-submit CSRF проверка.
-- Паролите са унифицирани на Argon2. SQLAdmin вече не записва bcrypt хешове, които login модулът не може да провери.
-- WebSocket screens се регистрират с `screen_id` и `zone_id`; личните събития не се broadcast-ват глобално.
-- Добавен е `DeliveryReceipt`: pending съобщенията се маркират като delivered само след WebSocket/HTTP acknowledgment.
-- Тестовете използват временна SQLite база и не докосват production/demo базата.
-- Dependency стекът е pin-нат и `pip check` приключва без конфликти.
-- Премахнати са legacy face-recognition, UI/people-counter/state-manager модулите и техните тежки зависимости.
-- Добавен е единен светъл български SQLAdmin контролен център с responsive Jinja интерфейс и локално vendor-нат HTMX.
-- Добавени са отделни служебни профили, 4 системни роли, permission-aware menus/actions, login lockout и административен audit trail.
-- Добавени са типизирани оперативни настройки и AES-GCM криптирани AI тайни; deployment границата остава извън панела.
-- Добавени са класове/групи, помещения, обяви, клубове, замествания, дежурства, задачи, напомняния, указател и кампании.
-- Добавен е CSV/XLSX импорт на разписание с preview, редови грешки, upsert/replace-range и история.
-- Добавени са индивидуално device enrollment/credentials, heartbeat, config version, safe commands и command ACK.
-- Добавени са retention preview/cleanup, архивиране при ръчно изтриване и проверими SQLite backups.
-- Добавена е additive Alembic миграция, която пази съществуващите prototype таблици.
+- QR badge backend с възстановени persons, badges, timetable, events, messages, cameras и interaction-points API договори.
+- Малък FastAPI composition root с отделни routers, services и permission-aware SQLAdmin views.
+- Argon2, double-submit CSRF, служебни профили, четири роли, login lockout и административен audit.
+- Таргетирани WebSocket връзки по device/screen/zone и delivery acknowledgment.
+- Индивидуален device enrollment, heartbeat, config, safe commands и command ACK.
+- Управление на учебно съдържание, CSV/XLSX import, retention cleanup и проверими SQLite backups.
+- Alembic-only database bootstrap с legacy baseline; startup не изпълнява `create_all()` и import-ът не променя базата.
+- Runtime DB, imports и backups са извън Git; production demo seed-ът е преместен в test fixtures.
+- Разделени server, QR-node, optional-AI и development dependency профили.
+- Премахнати са legacy face/mood/Piper/jokes/font assets, неизползваните config полета и старият audio/cache/logger поток.
+- Оригиналната спецификация е архивирана; root `TASK.md` е единственият активен roadmap.
 
 ## Проверено
 
-- 44+ Python файла са синтактично валидни.
-- 18 интеграционни теста покриват старите API договори и новия control plane.
-- Покрити са RBAC foundation, encrypted settings, login lockout, device enrollment/heartbeat/config/command ACK, import, retention, backup, CSRF, Argon2, targeted WebSocket и delivery ACK.
+- 34 unit/integration теста минават върху временни SQLite бази.
+- 50 Python файла преминават AST syntax проверка.
+- Покрити са fresh migration, legacy upgrade, вече stamped database и отказ при outdated schema.
+- Покрити са REST, CSRF, Argon2, RBAC, encrypted secrets, device lifecycle, WebSocket targeting, imports, privacy и backups.
+- Simulator contract тестовете изискват индивидуални credentials по подразбиране.
+- Dependency contract тестовете гарантират pinned и разделени профили без Piper и `httpx2`.
 
-## Следващи етапи от TASK.md
-
-1. Реален Whisper/STT аудио endpoint.
-2. LLM intent parsing с ограничен DB контекст и rule-based fallback.
-3. PostgreSQL и Redis преди multi-worker/LAN внедряване.
-4. Реални тестове с две или повече физически камери и kiosk screens.
-5. Deployment процедура за контролирано възстановяване от backup при спрян сървър.
+Оставащата продуктова работа е описана само в `TASK.md`.

@@ -34,6 +34,10 @@ ENV/
 .env
 .env.local
 data/face_encodings.pkl
+data/*.db
+data/*.db-*
+data/backups/
+data/imports/
 data/audio_cache/
 data/history_cache/
 logs/

@@ -4,7 +4,7 @@ Business logic lives in ``web.services`` and HTTP/WebSocket contracts in
 ``web.routers``. This module intentionally contains only application wiring.
 """
 
-from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -12,22 +12,29 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from utils.config import Config
 from web.admin_panel import setup_admin
-from web.database import SessionLocal, db_engine, get_db, init_schema
+from web.database import SessionLocal, assert_schema_current, db_engine, get_db
 from web.routers.admin_api import router as admin_api_router
 from web.routers.device_api import router as device_api_router
 from web.routers.device_control import router as device_control_router
 from web.routers.system import router as system_router
 from web.security import ensure_runtime_secrets, install_security_middleware
-from web.services.runtime import runtime_registry
 from web.services.admin_control import ensure_admin_foundation
+from web.services.runtime import runtime_registry
 
 
 ensure_runtime_secrets()
-init_schema()
-with SessionLocal() as _startup_db:
-    ensure_admin_foundation(_startup_db)
 
-app = FastAPI(title="School AI Control Panel", version="2.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Validate migrations and install idempotent admin defaults at startup."""
+    assert_schema_current()
+    with SessionLocal() as startup_db:
+        ensure_admin_foundation(startup_db)
+    yield
+
+
+app = FastAPI(title="School AI Control Panel", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=Config.ADMIN_SECRET_KEY,
@@ -37,11 +44,7 @@ app.add_middleware(
 )
 install_security_middleware(app)
 
-audio_cache = Config.PROJECT_ROOT / "data" / "audio_cache"
-audio_cache.mkdir(parents=True, exist_ok=True)
-app.mount("/audio", StaticFiles(directory=str(audio_cache)), name="audio")
 admin_static = Config.PROJECT_ROOT / "web" / "static" / "admin"
-admin_static.mkdir(parents=True, exist_ok=True)
 app.mount("/static/admin", StaticFiles(directory=str(admin_static)), name="admin-static")
 
 app.include_router(system_router)

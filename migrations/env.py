@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 from engine import admin_models as _admin_models  # noqa: F401
 from engine.db import Base
@@ -16,6 +18,17 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+
+def ensure_sqlite_parent() -> None:
+    """Create only the configured SQLite parent directory for migration output."""
+    url = make_url(Config.DATABASE_URL)
+    if not url.drivername.startswith("sqlite") or not url.database or url.database == ":memory:":
+        return
+    database_path = Path(url.database).expanduser()
+    if not database_path.is_absolute():
+        database_path = Config.PROJECT_ROOT / database_path
+    database_path.resolve().parent.mkdir(parents=True, exist_ok=True)
 
 
 def run_migrations_offline() -> None:
@@ -32,6 +45,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    ensure_sqlite_parent()
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

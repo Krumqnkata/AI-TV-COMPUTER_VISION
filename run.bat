@@ -1,34 +1,22 @@
 @echo off
 setlocal
-color b
+cd /d "%~dp0"
 
-:: Try running with venv python first, fallback to system python if venv doesn't exist
-if exist ".venv\Scripts\python.exe" (
-    .venv\Scripts\python.exe check_dependencies.py
-) else (
-    python check_dependencies.py
+if not exist ".venv\Scripts\python.exe" (
+    echo [!] Липсва .venv. Създайте я и изпълнете:
+    echo     .venv\Scripts\python.exe -m pip install -r requirements.txt
+    pause
+    exit /b 1
 )
-
-:: If dependency check failed or venv is missing, stop here
-if %ERRORLEVEL% equ 0 goto :dependencies_ok
-
-echo [!] Dependency check failed. Run: .venv\Scripts\pip install -r requirements.txt
-pause
-exit /b 1
-
-:dependencies_ok
-
-echo.
-echo [+] Starting main.py...
-echo ============================================================
-echo.
 
 .venv\Scripts\python.exe main.py
-
-if %ERRORLEVEL% neq 0 (
+set "APP_EXIT=%ERRORLEVEL%"
+if not "%APP_EXIT%"=="0" (
     echo.
-    echo [!] Program exited with an error or was stopped.
+    echo [!] Сървърът не стартира. Проверете зависимостите и изпълнете:
+    echo     .venv\Scripts\python.exe -m alembic upgrade head
+    echo.
     pause
 )
-
+exit /b %APP_EXIT%
 

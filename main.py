@@ -1,14 +1,15 @@
 import uvicorn
-from utils.logger import log_system
+
 from utils.config import Config
+from utils.logger import log_system
+from web.database import assert_schema_current
+
 
 def main():
+    assert_schema_current()
     log_system("============================================================")
     log_system(" STARTING CENTRAL BACKEND SERVER (QR BADGE HUD)")
     log_system("============================================================")
-    
-    # Стартираме FastAPI сървъра директно
-    # Портът е 5000 според конфигурацията
     uvicorn.run(
         "web.server:app",
         host=Config.SERVER_HOST,
@@ -16,8 +17,12 @@ def main():
         log_level="info",
     )
 
+
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        log_system(f"Critical error: {e}", "error")
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        log_system(f"Critical error: {exc}", "error")
+        raise SystemExit(1) from exc

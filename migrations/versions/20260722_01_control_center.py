@@ -1,12 +1,12 @@
 """Add the role-based school control centre.
 
 Revision ID: 20260722_01
-Revises: None
+Revises: 20260722_00
 Create Date: 2026-07-22
 
 The migration is deliberately additive and check-first. Existing prototype
 tables and the current admin UI data remain untouched. It is also safe for a
-database where a previous application startup already called create_all().
+database where an older application version already created these tables.
 """
 
 from typing import Sequence, Union
@@ -18,7 +18,7 @@ from engine.db import Base
 
 
 revision: str = "20260722_01"
-down_revision: Union[str, None] = None
+down_revision: Union[str, None] = "20260722_00"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

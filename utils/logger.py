@@ -1,37 +1,32 @@
 import logging
-import os
-import csv
 from datetime import datetime
 
-# Настройка на системния лог
-if not os.path.exists("logs"):
-    os.makedirs("logs")
+from utils.config import Config
 
-log_file = os.path.join("logs", "system.log")
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    encoding='utf-8'
-)
+
+_logger: logging.Logger | None = None
+
+
+def _system_logger() -> logging.Logger:
+    global _logger
+    if _logger is not None:
+        return _logger
+    Config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("school_ai")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    if not logger.handlers:
+        handler = logging.FileHandler(Config.LOGS_DIR / "system.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+        logger.addHandler(handler)
+    _logger = logger
+    return logger
+
 
 def log_system(message, level="info"):
-    if level == "info":
-        logging.info(message)
-    elif level == "error":
-        logging.error(message)
+    logger = _system_logger()
+    if level == "error":
+        logger.error(message)
+    else:
+        logger.info(message)
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
-
-def log_recognition(name):
-    """ Записва всяко разпознаване в CSV файл за история """
-    history_file = os.path.join("logs", "history.csv")
-    file_exists = os.path.isfile(history_file)
-
-    with open(history_file, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        # Ако файлът е нов, добавяме заглавия
-        if not file_exists:
-            writer.writerow(['Дата', 'Час', 'Име'])
-
-        now = datetime.now()
-        writer.writerow([now.strftime('%Y-%m-%d'), now.strftime('%H:%M:%S'), name])
