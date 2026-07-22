@@ -32,10 +32,13 @@ ENV/
 
 # Project Specific
 .env
+.env.local
 data/face_encodings.pkl
 data/audio_cache/
 data/history_cache/
 logs/
+*.db-wal
+*.db-shm
 
 # OS
 Thumbs.db

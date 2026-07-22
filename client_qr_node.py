@@ -5,11 +5,19 @@ import os
 import tempfile
 import pygame
 from gtts import gTTS
+from utils.config import Config
 
 # URL на централния сървър
-SERVER_URL = "http://localhost:5000"
-CAMERA_ID = "CAM-ENTRANCE-01"
-ZONE_ID = "MAIN_ENTRANCE"
+SERVER_URL = Config.SERVER_URL
+CAMERA_ID = Config.CAMERA_ID
+ZONE_ID = Config.ZONE_ID
+SCREEN_ID = Config.SCREEN_ID
+DEVICE_API_KEY = Config.DEVICE_API_KEY
+HTTP_TIMEOUT = Config.HTTP_TIMEOUT_SECONDS
+
+http = requests.Session()
+if DEVICE_API_KEY:
+    http.headers.update({"X-Device-Key": DEVICE_API_KEY})
 
 def speak_message(text):
     """ Конвертира текст в българска реч чрез gTTS и я възпроизвежда """
@@ -36,19 +44,26 @@ def speak_message(text):
             
         pygame.mixer.music.unload()
         # Изтриваме временния файл
-        os.remove(temp_filename)
     except Exception as e:
         print(f"[Грешка] Неуспешно генериране/възпроизвеждане на говор: {e}")
+    finally:
+        if 'temp_filename' in locals() and os.path.exists(temp_filename):
+            try:
+                os.remove(temp_filename)
+            except OSError:
+                pass
 
 def send_voice_command(person_id, text_query):
     """ Изпраща гласова/текстова команда към сървъра """
     url = f"{SERVER_URL}/api/voice_command"
     payload = {
         "person_id": person_id,
-        "text_query": text_query
+        "text_query": text_query,
+        "zone_id": ZONE_ID,
+        "screen_id": SCREEN_ID,
     }
     try:
-        response = requests.post(url, json=payload)
+        response = http.post(url, json=payload, timeout=HTTP_TIMEOUT)
         if response.status_code == 200:
             res_data = response.json()
             print(f"\n[AI Отговор] {res_data['response']}")
@@ -63,11 +78,15 @@ def main():
     print(" СТАРТИРАНЕ НА КРАЙНА ТОЧКА (CLIENT NODE) - QR ЧЕТЕЦ")
     print("=" * 60)
     
+    if not DEVICE_API_KEY:
+        print("[Грешка] DEVICE_API_KEY не е конфигуриран в .env на client node.")
+        return
+
     # Инициализираме pygame за аудио
     pygame.mixer.init()
     
     # Инициализираме камерата
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(Config.CAMERA_SOURCE)
     if not cap.isOpened():
         print("[Грешка] Камерата не може да бъде отворена!")
         return
@@ -106,6 +125,14 @@ def main():
         # Автоматично затваряне на сесията след 60 секунди бездействие на този клиент
         if last_person_id and (current_time - last_detection_time > 60.0):
             print("[Сесия] Сесията изтече поради бездействие. Потребителят е отписан.")
+            try:
+                http.post(
+                    f"{SERVER_URL}/api/sessions/close",
+                    json={"zone_id": ZONE_ID, "screen_id": SCREEN_ID},
+                    timeout=HTTP_TIMEOUT,
+                )
+            except requests.RequestException:
+                pass
             last_person_id = None
         
         # Рисуваме кутия около QR кода, ако е намерен
@@ -122,7 +149,7 @@ def main():
                 last_seen = detected_badges.get(token, 0)
                 if current_time - last_seen > cooldown_period:
                     detected_badges[token] = current_time
-                    print(f"\n[QR] Засечен бадж: {token}")
+                    print("\n[QR] Засечен бадж; изпращане към сървъра...")
                     
                     # Изпращаме към сървъра
                     url = f"{SERVER_URL}/api/detect_qr"
@@ -135,7 +162,7 @@ def main():
                     
                     try:
                         print("[Мрежа] Изпращане на събитие към сървъра...")
-                        response = requests.post(url, json=payload)
+                        response = http.post(url, json=payload, timeout=HTTP_TIMEOUT)
                         if response.status_code == 200:
                             res_data = response.json()
                             if res_data.get("status") == "success":
@@ -145,6 +172,14 @@ def main():
                                 print(f"[Сървър] Разпознат: {res_data['person']['name']}")
                                 print(f"[Приветствие] {welcome_msg}")
                                 speak_message(welcome_msg)
+                                delivery_id = res_data.get("delivery_id")
+                                message_ids = res_data.get("message_ids", [])
+                                if delivery_id:
+                                    http.post(
+                                        f"{SERVER_URL}/api/deliveries/ack",
+                                        json={"delivery_id": delivery_id, "message_ids": message_ids},
+                                        timeout=HTTP_TIMEOUT,
+                                    )
                             elif res_data.get("status") == "ignored":
                                 reason = res_data.get("reason")
                                 if reason == "kiosk_busy":

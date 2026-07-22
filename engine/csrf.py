@@ -11,11 +11,9 @@ def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
 def _get_token_from_request(request: Request) -> Optional[str]:
-    # Prefer header, fallback to cookie
-    token = request.headers.get(CSRF_HEADER_NAME)
-    if not token:
-        token = request.cookies.get(CSRF_COOKIE_NAME)
-    return token
+    # Double-submit CSRF requires an explicit header. Falling back to the cookie
+    # would compare the cookie with itself and would not provide protection.
+    return request.headers.get(CSRF_HEADER_NAME)
 
 def verify_csrf_token(request: Request) -> bool:
     """Validate CSRF token from request.

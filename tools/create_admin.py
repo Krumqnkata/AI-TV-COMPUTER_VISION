@@ -11,16 +11,13 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from engine.db import Person, init_db
 from engine.auth import get_password_hash
 
-DATABASE_URL = "sqlite:///data/school_ai.db"
-
 
 def create_or_update_admin(full_name: str, password: str, role: str = "admin"):
-    engine = init_db(DATABASE_URL)
+    engine = init_db()
     Session = sessionmaker(bind=engine)
     db = Session()
     try:
