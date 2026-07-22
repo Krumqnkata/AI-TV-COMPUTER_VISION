@@ -2,6 +2,7 @@ import cv2
 import requests
 import time
 import os
+import sys
 import tempfile
 import pygame
 from gtts import gTTS
@@ -13,11 +14,120 @@ CAMERA_ID = Config.CAMERA_ID
 ZONE_ID = Config.ZONE_ID
 SCREEN_ID = Config.SCREEN_ID
 DEVICE_API_KEY = Config.DEVICE_API_KEY
+DEVICE_ID = Config.DEVICE_ID
+DEVICE_KEY = Config.DEVICE_KEY
 HTTP_TIMEOUT = Config.HTTP_TIMEOUT_SECONDS
 
 http = requests.Session()
-if DEVICE_API_KEY:
-    http.headers.update({"X-Device-Key": DEVICE_API_KEY})
+
+
+def set_device_credentials(device_id, device_key):
+    """Apply individual credentials, falling back to the legacy shared key."""
+    global DEVICE_ID, DEVICE_KEY
+    DEVICE_ID = device_id or ""
+    DEVICE_KEY = device_key or ""
+    http.headers.pop("X-Device-ID", None)
+    http.headers.pop("X-Device-Key", None)
+    if DEVICE_KEY:
+        http.headers.update({"X-Device-ID": DEVICE_ID, "X-Device-Key": DEVICE_KEY})
+    elif DEVICE_API_KEY:
+        http.headers.update({"X-Device-Key": DEVICE_API_KEY})
+
+
+set_device_credentials(DEVICE_ID, DEVICE_KEY)
+
+
+def enroll_device(enrollment_token):
+    """Redeem a short-lived code created in the admin panel."""
+    if not DEVICE_ID:
+        raise RuntimeError("DEVICE_ID е задължителен за сдвояване")
+    response = requests.post(
+        f"{SERVER_URL}/api/devices/enroll",
+        headers={"X-Enrollment-Token": enrollment_token},
+        json={
+            "identifier": DEVICE_ID,
+            "name": Config.DEVICE_NAME,
+            "device_type": Config.DEVICE_TYPE,
+            "capabilities": ["camera", "qr", "audio"],
+            "software_version": "2.1.0",
+        },
+        timeout=HTTP_TIMEOUT,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    set_device_credentials(payload["device_id"], payload["device_key"])
+    print("\n[Сдвояване] Устройството е регистрирано успешно.")
+    print("[ВАЖНО] Запазете следните deployment стойности преди следващ рестарт:")
+    print(f"DEVICE_ID={payload['device_id']}")
+    print(f"DEVICE_KEY={payload['device_key']}")
+    return payload
+
+
+def sync_device_control(runtime, cap):
+    """Heartbeat/config polling and acknowledged safe commands."""
+    if not DEVICE_ID or not DEVICE_KEY:
+        return False
+    now = time.monotonic()
+    if now - runtime["last_heartbeat"] >= 30:
+        response = http.post(
+            f"{SERVER_URL}/api/devices/heartbeat",
+            json={
+                "status": "paused" if runtime["paused"] else "online",
+                "software_version": "2.1.0",
+                "capabilities": ["camera", "qr", "audio"],
+            },
+            timeout=HTTP_TIMEOUT,
+        )
+        response.raise_for_status()
+        runtime["last_heartbeat"] = now
+
+    if now - runtime["last_config"] >= 60:
+        response = http.get(f"{SERVER_URL}/api/devices/config", timeout=HTTP_TIMEOUT)
+        response.raise_for_status()
+        config = response.json().get("settings", {})
+        runtime["idle_seconds"] = int(config.get("kiosk_idle_seconds", runtime["idle_seconds"]))
+        runtime["cooldown_seconds"] = int(config.get("qr_same_camera_seconds", runtime["cooldown_seconds"]))
+        runtime["voice_enabled"] = bool(config.get("voice_enabled", runtime["voice_enabled"]))
+        runtime["last_config"] = now
+
+    if now - runtime["last_commands"] < 5:
+        return False
+    runtime["last_commands"] = now
+    response = http.get(f"{SERVER_URL}/api/devices/commands/pending", timeout=HTTP_TIMEOUT)
+    response.raise_for_status()
+    restart_requested = False
+    for item in response.json():
+        success = True
+        result = {}
+        try:
+            command = item["command"]
+            if command == "refresh_config":
+                runtime["last_config"] = 0
+            elif command == "enable":
+                runtime["paused"] = False
+            elif command == "disable":
+                runtime["paused"] = True
+            elif command == "test_camera":
+                success = bool(cap and cap.isOpened())
+                result = {"camera_open": success}
+            elif command == "test_audio":
+                speak_message("Тестът на звука е успешен.")
+            elif command == "test_screen":
+                result = {"window": "active"}
+            elif command == "restart_app":
+                restart_requested = True
+            else:
+                success = False
+                result = {"error": "unsupported_command"}
+        except Exception as exc:
+            success = False
+            result = {"error": str(exc)[:300]}
+        http.post(
+            f"{SERVER_URL}/api/devices/commands/{item['id']}/ack",
+            json={"success": success, "result": result},
+            timeout=HTTP_TIMEOUT,
+        ).raise_for_status()
+    return restart_requested
 
 def speak_message(text):
     """ Конвертира текст в българска реч чрез gTTS и я възпроизвежда """
@@ -78,8 +188,14 @@ def main():
     print(" СТАРТИРАНЕ НА КРАЙНА ТОЧКА (CLIENT NODE) - QR ЧЕТЕЦ")
     print("=" * 60)
     
-    if not DEVICE_API_KEY:
-        print("[Грешка] DEVICE_API_KEY не е конфигуриран в .env на client node.")
+    if not DEVICE_KEY and Config.DEVICE_ENROLLMENT_TOKEN:
+        try:
+            enroll_device(Config.DEVICE_ENROLLMENT_TOKEN)
+        except (requests.RequestException, RuntimeError) as exc:
+            print(f"[Грешка] Сдвояването е неуспешно: {exc}")
+            return
+    if not DEVICE_KEY and not DEVICE_API_KEY:
+        print("[Грешка] Конфигурирайте DEVICE_ID + DEVICE_KEY или временния legacy DEVICE_API_KEY.")
         return
 
     # Инициализираме pygame за аудио
@@ -95,7 +211,15 @@ def main():
     detector = cv2.QRCodeDetector()
     
     # Коодаун за засичане на един и същ бадж (в секунди)
-    cooldown_period = 10
+    runtime = {
+        "cooldown_seconds": 10,
+        "idle_seconds": 60,
+        "voice_enabled": True,
+        "paused": False,
+        "last_heartbeat": 0,
+        "last_config": 0,
+        "last_commands": 0,
+    }
     detected_badges = {}  # {badge_token: last_detection_timestamp}
     
     last_person_id = None
@@ -111,7 +235,15 @@ def main():
     win_name = "School AI - QR Node Camera"
     cv2.namedWindow(win_name)
 
+    restart_requested = False
     while True:
+        try:
+            restart_requested = sync_device_control(runtime, cap)
+        except requests.RequestException as exc:
+            print(f"[Управление] Временен проблем с control plane: {exc}")
+        if restart_requested:
+            print("[Управление] Получена потвърдена команда за рестарт на приложението.")
+            break
         ret, frame = cap.read()
         if not ret:
             print("[Грешка] Проблем с получаването на кадър.")
@@ -123,7 +255,7 @@ def main():
         current_time = time.time()
         
         # Автоматично затваряне на сесията след 60 секунди бездействие на този клиент
-        if last_person_id and (current_time - last_detection_time > 60.0):
+        if last_person_id and (current_time - last_detection_time > runtime["idle_seconds"]):
             print("[Сесия] Сесията изтече поради бездействие. Потребителят е отписан.")
             try:
                 http.post(
@@ -136,7 +268,7 @@ def main():
             last_person_id = None
         
         # Рисуваме кутия около QR кода, ако е намерен
-        if bbox is not None and len(bbox) > 0:
+        if not runtime["paused"] and bbox is not None and len(bbox) > 0:
             pts = bbox[0].astype(int)
             for i in range(len(pts)):
                 cv2.line(frame, tuple(pts[i]), tuple(pts[(i+1) % len(pts)]), (0, 255, 0), 2)
@@ -147,7 +279,7 @@ def main():
                 
                 # Проверяваме за коодаун
                 last_seen = detected_badges.get(token, 0)
-                if current_time - last_seen > cooldown_period:
+                if current_time - last_seen > runtime["cooldown_seconds"]:
                     detected_badges[token] = current_time
                     print("\n[QR] Засечен бадж; изпращане към сървъра...")
                     
@@ -213,13 +345,17 @@ def main():
                 print("[Внимание] Няма идентифициран потребител. Командата ще бъде изпратена като Гост.")
             
             query = input("Въведете команда (напр. 'имам ли съобщения', 'къде е кабинет 304'): ")
-            if query.strip():
+            if query.strip() and runtime["voice_enabled"]:
                 send_voice_command(last_person_id, query)
+            elif query.strip():
+                print("[Информация] Гласовите/текстовите команди са изключени от администратора.")
             print("Връщане към режим на сканиране...")
             print("="*30 + "\n")
 
     cap.release()
     cv2.destroyAllWindows()
+    if restart_requested:
+        os.execv(sys.executable, [sys.executable, *sys.argv])
     print("Излизане...")
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -22,16 +22,35 @@ _database_path = Path(_temp_dir.name) / "school_ai_test.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{_database_path.as_posix()}"
 os.environ["DEVICE_API_KEY"] = TEST_DEVICE_KEY
 os.environ["ADMIN_SECRET_KEY"] = "test-admin-session-secret-with-sufficient-length"
+os.environ["SETTINGS_MASTER_KEY"] = "test-settings-master-key-with-sufficient-length"
 os.environ["COOKIE_SECURE"] = "false"
+os.environ["BACKUP_DIR"] = str(Path(_temp_dir.name) / "backups")
 
 from fastapi.testclient import TestClient  # noqa: E402
+from alembic import command as alembic_command  # noqa: E402
+from alembic.config import Config as AlembicConfig  # noqa: E402
+from sqlalchemy import create_engine, inspect  # noqa: E402
 
 from engine.auth import get_password_hash  # noqa: E402
-from engine.db import Badge, Base, DeliveryReceipt, Message, Person, hash_token, now_bg, seed_db  # noqa: E402
+from engine.admin_models import DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
+from engine.db import Badge, Base, DeliveryReceipt, Message, Person, SystemEvent, Timetable, hash_token, now_bg, seed_db  # noqa: E402
 from web.database import SessionLocal, db_engine  # noqa: E402
 from web.security import require_admin  # noqa: E402
 from web.server import app  # noqa: E402
 from web.services.runtime import runtime_registry  # noqa: E402
+from web.services.admin_control import (  # noqa: E402
+    authenticate_staff,
+    ensure_admin_foundation,
+    get_setting,
+    read_secret,
+    save_secret,
+    update_settings,
+)
+from web.services.backups import create_sqlite_backup, verify_backup  # noqa: E402
+from web.services.device_control import create_enrollment_token, queue_command  # noqa: E402
+from web.services.imports import execute_schedule_import, preview_schedule_import  # noqa: E402
+from web.services.privacy import execute_retention_cleanup, retention_preview  # noqa: E402
+from utils.config import Config as AppConfig  # noqa: E402
 
 
 DEVICE_HEADERS = {"X-Device-Key": TEST_DEVICE_KEY}
@@ -47,6 +66,8 @@ class TestSchoolAIAPI(unittest.TestCase):
         cls.admin = cls.db.query(Person).filter(Person.role == "admin").first()
         cls.admin.password_hash = get_password_hash("test-admin-password")
         cls.db.commit()
+        ensure_admin_foundation(cls.db)
+        cls.staff = cls.db.query(StaffAccount).filter(StaffAccount.linked_person_id == cls.admin.id).one()
         cls.client_context = TestClient(app)
         cls.client = cls.client_context.__enter__()
 
@@ -77,6 +98,17 @@ class TestSchoolAIAPI(unittest.TestCase):
             headers=DEVICE_HEADERS,
             json={"camera_id": camera, "zone_id": zone, "badge_token": token, "confidence": 0.99},
         )
+
+    def _login_admin(self):
+        self.client.get("/admin/login")
+        response = self.client.post(
+            "/admin/login",
+            data={"username": self.staff.username, "password": "test-admin-password"},
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+        self.assertIn(response.status_code, (302, 303))
+        return response
 
     def test_device_authentication_is_required(self):
         response = self.client.post(
@@ -150,6 +182,40 @@ class TestSchoolAIAPI(unittest.TestCase):
         statuses = [m.status for m in self.db.query(Message).filter(Message.recipient_id == anton.id).all()]
         self.assertIn("delivered", statuses)
 
+    def test_websocket_registration_with_individual_device_credentials(self):
+        _token, raw_token = create_enrollment_token(
+            self.db,
+            self.staff,
+            label="Индивидуален WS екран",
+            device_type="screen",
+            expected_identifier="ws-screen-test",
+            zone_id="WS_TEST_ZONE",
+            screen_id="WS_TEST_SCREEN",
+        )
+        enrolled = self.client.post(
+            "/api/devices/enroll",
+            headers={"X-Enrollment-Token": raw_token},
+            json={
+                "identifier": "ws-screen-test",
+                "name": "WS тестов екран",
+                "device_type": "screen",
+                "capabilities": ["screen"],
+            },
+        ).json()
+        with self.client.websocket_connect("/ws") as websocket:
+            websocket.send_json({
+                "type": "register",
+                "device_id": enrolled["device_id"],
+                "device_key": enrolled["device_key"],
+                "screen_id": "WS_TEST_SCREEN",
+                "zone_id": "WS_TEST_ZONE",
+            })
+            response = websocket.receive_json()
+            self.assertEqual(response["type"], "registered")
+            self.assertEqual(response["data"]["device_id"], "ws-screen-test")
+            websocket.send_json({"type": "ping"})
+            self.assertEqual(websocket.receive_json()["type"], "pong")
+
     def test_duplicate_and_busy_session_rules(self):
         first = self._scan()
         self.assertEqual(first.json()["status"], "success")
@@ -220,6 +286,168 @@ class TestSchoolAIAPI(unittest.TestCase):
         )
         self.assertIn(response.status_code, (302, 303))
         self.client.cookies.delete("session")
+
+    def test_admin_foundation_settings_and_encrypted_secrets(self):
+        self.assertGreaterEqual(self.db.query(StaffRole).count(), 4)
+        self.assertGreater(self.db.query(SystemSetting).count(), 10)
+        self.assertIn("superadmin", {role.code for role in self.staff.roles})
+        update_settings(self.db, {"school.name": "Тестово училище"}, self.staff)
+        self.assertEqual(get_setting(self.db, "school.name"), "Тестово училище")
+        saved = save_secret(self.db, "gemini.api_key", "very-secret-test-key", self.staff)
+        self.assertNotIn("very-secret-test-key", saved.ciphertext)
+        self.assertEqual(read_secret(self.db, "gemini.api_key"), "very-secret-test-key")
+        self.assertEqual(self.db.query(EncryptedSecret).filter_by(key="gemini.api_key").count(), 1)
+
+    def test_admin_dashboard_is_bulgarian_and_permission_aware(self):
+        self._login_admin()
+        response = self.client.get("/admin/dashboard")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Контролен център", response.text)
+        self.assertIn("Бързи действия", response.text)
+        self.assertNotIn("password_hash", response.text)
+        health = self.client.get("/admin/dashboard/health")
+        self.assertEqual(health.status_code, 200)
+        self.assertIn("Сървър и база", health.text)
+        self.client.cookies.delete("session")
+
+    def test_admin_workflow_pages_render_without_exposing_secrets(self):
+        self._login_admin()
+        for path in [
+            "/admin/settings",
+            "/admin/staff",
+            "/admin/badges/issue",
+            "/admin/schedule-import",
+            "/admin/devices",
+            "/admin/privacy",
+            "/admin/backups",
+            "/admin/person/list",
+            "/admin/timetable/list",
+            "/admin/announcement/list",
+        ]:
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200, f"{path}: {response.text[:300]}")
+            self.assertNotIn("password_hash", response.text, path)
+            self.assertNotIn("ciphertext", response.text, path)
+        self.client.cookies.delete("session")
+
+    def test_staff_login_lockout(self):
+        account = StaffAccount(
+            username="locked-test-user",
+            display_name="Заключван тест",
+            password_hash=get_password_hash("correct-test-password"),
+            active=True,
+        )
+        account.roles = [self.db.query(StaffRole).filter(StaffRole.code == "teacher_editor").one()]
+        self.db.add(account)
+        self.db.commit()
+        for _ in range(5):
+            self.assertIsNone(authenticate_staff(self.db, account.username, "wrong-password"))
+        self.db.refresh(account)
+        self.assertIsNotNone(account.locked_until)
+        self.assertIsNone(authenticate_staff(self.db, account.username, "correct-test-password"))
+
+    def test_managed_device_enrollment_heartbeat_config_command_and_ack(self):
+        token, raw_token = create_enrollment_token(
+            self.db,
+            self.staff,
+            label="Тестов екран",
+            device_type="kiosk",
+            expected_identifier="test-kiosk-01",
+            zone_id="TEST_ZONE",
+            screen_id="TEST_SCREEN",
+        )
+        response = self.client.post(
+            "/api/devices/enroll",
+            headers={"X-Enrollment-Token": raw_token},
+            json={
+                "identifier": "test-kiosk-01",
+                "name": "Тестов киоск",
+                "device_type": "kiosk",
+                "capabilities": ["screen"],
+                "software_version": "test-1",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        credentials = {
+            "X-Device-ID": response.json()["device_id"],
+            "X-Device-Key": response.json()["device_key"],
+        }
+        heartbeat = self.client.post(
+            "/api/devices/heartbeat",
+            headers=credentials,
+            json={"status": "online", "software_version": "test-2", "capabilities": ["screen"]},
+        )
+        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+        config = self.client.get("/api/devices/config", headers=credentials)
+        self.assertEqual(config.status_code, 200)
+        self.assertEqual(config.json()["zone_id"], "TEST_ZONE")
+        self.db.expire_all()
+        device = self.db.query(DeviceNode).filter(DeviceNode.identifier == "test-kiosk-01").one()
+        command = queue_command(self.db, device, "test_screen", self.staff)
+        pending = self.client.get("/api/devices/commands/pending", headers=credentials)
+        self.assertEqual([item["id"] for item in pending.json()], [command.id])
+        ack = self.client.post(
+            f"/api/devices/commands/{command.id}/ack",
+            headers=credentials,
+            json={"success": True, "result": {"pixels": "ok"}},
+        )
+        self.assertEqual(ack.status_code, 200)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(DeviceCommand, command.id).status, "acknowledged")
+        self.assertIsNotNone(token.used_at)
+
+    def test_additive_alembic_migration_preserves_legacy_tables(self):
+        legacy_names = [
+            "persons", "badges", "interaction_points", "cameras", "messages",
+            "timetable", "events", "system_events", "delivery_receipts",
+        ]
+        with tempfile.TemporaryDirectory(prefix="school_ai_migration_") as migration_dir:
+            database_path = Path(migration_dir) / "legacy.db"
+            database_url = f"sqlite:///{database_path.as_posix()}"
+            migration_engine = create_engine(database_url)
+            for table_name in legacy_names:
+                Base.metadata.tables[table_name].create(migration_engine, checkfirst=True)
+            before = set(inspect(migration_engine).get_table_names())
+            original_url = AppConfig.DATABASE_URL
+            try:
+                AppConfig.DATABASE_URL = database_url
+                migration_config = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
+                alembic_command.upgrade(migration_config, "head")
+            finally:
+                AppConfig.DATABASE_URL = original_url
+            after = set(inspect(migration_engine).get_table_names())
+            self.assertTrue(set(legacy_names).issubset(after))
+            self.assertTrue(before.issubset(after))
+            self.assertIn("staff_accounts", after)
+            self.assertIn("device_nodes", after)
+            self.assertIn("alembic_version", after)
+            migration_engine.dispose()
+
+    def test_schedule_import_preview_and_upsert(self):
+        csv_content = (
+            "full_name;date;period;start_time;end_time;subject;class_name;room\n"
+            "Антон Иванов;2099-01-15;3;10:00;10:40;Тестов предмет;8А;T-1\n"
+        ).encode("utf-8")
+        preview = preview_schedule_import(self.db, "schedule.csv", csv_content)
+        self.assertEqual(len(preview.rows), 1)
+        self.assertEqual(preview.issues, [])
+        job = execute_schedule_import(self.db, "schedule.csv", csv_content, "upsert", self.staff)
+        self.assertEqual(job.status, "completed")
+        anton = self._person("Антон Иванов")
+        record = self.db.query(Timetable).filter(Timetable.person_id == anton.id, Timetable.date == datetime(2099, 1, 15).date(), Timetable.period == 3).one()
+        self.assertEqual(record.room, "T-1")
+
+    def test_retention_preview_cleanup_and_verified_backup(self):
+        old_event = SystemEvent(event_type="old-test-event", timestamp=now_bg() - timedelta(days=400))
+        self.db.add(old_event)
+        self.db.commit()
+        preview = retention_preview(self.db)
+        self.assertGreaterEqual(preview["system_events"]["count"], 1)
+        execute_retention_cleanup(self.db, self.staff)
+        self.assertEqual(self.db.query(SystemEvent).filter(SystemEvent.event_type == "old-test-event").count(), 0)
+        backup = create_sqlite_backup(self.db, self.staff)
+        self.assertTrue(Path(backup.storage_path).is_file())
+        self.assertTrue(verify_backup(self.db, backup))
 
     def test_admin_crud_contracts(self):
         app.dependency_overrides[require_admin] = lambda: self.admin

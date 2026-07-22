@@ -6,6 +6,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env.local")
 load_dotenv(PROJECT_ROOT / ".env")
 
+
+def _project_path(value: str, default: str) -> Path:
+    """Return an absolute deployment path, rooted in the project by default."""
+    candidate = Path(value or default).expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate.resolve()
+
 def _parse_camera_source(value):
     """ Ако стойността е число — USB камера (int). Иначе — IP камера URL (str). """
     try:
@@ -23,8 +31,24 @@ class Config:
     SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
     SERVER_URL = os.getenv("SERVER_URL", "http://localhost:5000").rstrip("/")
     DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "")
+    DEVICE_ID = os.getenv("DEVICE_ID", "")
+    DEVICE_KEY = os.getenv("DEVICE_KEY", "")
+    DEVICE_NAME = os.getenv("DEVICE_NAME", "QR четец")
+    DEVICE_TYPE = os.getenv("DEVICE_TYPE", "camera_node")
+    DEVICE_ENROLLMENT_TOKEN = os.getenv("DEVICE_ENROLLMENT_TOKEN", "")
     ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "")
+    ADMIN_SECRET_IS_EPHEMERAL = False
+    SETTINGS_MASTER_KEY = os.getenv("SETTINGS_MASTER_KEY", "")
     COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+    ADMIN_SESSION_SECONDS = int(os.getenv("ADMIN_SESSION_SECONDS", str(8 * 60 * 60)))
+    ADMIN_LOGIN_MAX_FAILURES = int(os.getenv("ADMIN_LOGIN_MAX_FAILURES", "5"))
+    ADMIN_LOGIN_LOCK_MINUTES = int(os.getenv("ADMIN_LOGIN_LOCK_MINUTES", "15"))
+
+    # These paths are deployment boundaries. Their contents are managed from
+    # the panel, but administrators cannot redirect them to arbitrary folders.
+    BACKUP_DIR = _project_path(os.getenv("BACKUP_DIR", ""), "data/backups")
+    IMPORT_DIR = _project_path(os.getenv("IMPORT_DIR", ""), "data/imports")
+    MAX_IMPORT_BYTES = int(os.getenv("MAX_IMPORT_BYTES", str(10 * 1024 * 1024)))
 
     COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", 30))
     CAMERA_SOURCE = _parse_camera_source(os.getenv("CAMERA_SOURCE", "0"))
@@ -55,6 +79,5 @@ class Config:
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
 
     # Логове
-    LOGS_DIR = "logs"
-    if not os.path.exists(LOGS_DIR):
-        os.makedirs(LOGS_DIR)
+    LOGS_DIR = _project_path(os.getenv("LOGS_DIR", ""), "logs")
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)

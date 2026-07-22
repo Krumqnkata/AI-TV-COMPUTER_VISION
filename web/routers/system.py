@@ -10,7 +10,7 @@ from engine.db import SystemEvent, today_bg
 from utils.config import Config
 from web.connections import connection_manager
 from web.database import SessionLocal
-from web.security import verify_device_key_value
+from web.services.device_control import authenticate_device, context_allows_scope
 from web.services.delivery import acknowledge_delivery
 
 
@@ -44,7 +44,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         raw_registration = await asyncio.wait_for(websocket.receive_text(), timeout=5)
         registration = json.loads(raw_registration)
-        if registration.get("type") != "register" or not verify_device_key_value(registration.get("device_key")):
+        if registration.get("type") != "register":
             await websocket.close(code=1008, reason="Invalid device registration")
             return
         screen_id = str(registration.get("screen_id", "")).strip()
@@ -53,11 +53,29 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=1008, reason="Missing screen_id or zone_id")
             return
 
-        await connection_manager.register(websocket, screen_id, zone_id)
+        auth_db = SessionLocal()
+        try:
+            device_context = authenticate_device(
+                auth_db,
+                str(registration.get("device_id", "")).strip() or None,
+                registration.get("device_key"),
+            )
+            if device_context is None or not context_allows_scope(
+                device_context,
+                screen_id=screen_id,
+                zone_id=zone_id,
+            ):
+                await websocket.close(code=1008, reason="Invalid device registration")
+                return
+            registered_device_id = device_context.device.identifier if device_context.device else None
+        finally:
+            auth_db.close()
+
+        await connection_manager.register(websocket, screen_id, zone_id, registered_device_id)
         registered = True
         await websocket.send_text(json.dumps({
             "type": "registered",
-            "data": {"screen_id": screen_id, "zone_id": zone_id},
+            "data": {"screen_id": screen_id, "zone_id": zone_id, "device_id": registered_device_id},
         }, ensure_ascii=False))
 
         while True:

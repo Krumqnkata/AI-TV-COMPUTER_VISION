@@ -4,7 +4,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from engine.admin_models import Room
 from engine.db import Event, Message, Person, SystemEvent, Timetable, now_bg, today_bg
+from web.services.admin_control import get_setting
+from web.services.ai_runtime import answer_from_public_school_context, parse_read_only_intent
 
 
 def parse_intent_rule_based(query: str) -> dict:
@@ -101,6 +104,8 @@ def handle_voice_command(person_id: int | None, text_query: str, db: Session) ->
         return {"intent": "invalid_person", "query": text_query, "response": "Профилът не е активен."}
 
     parsed = parse_intent_rule_based(query)
+    if parsed["intent"] == "unknown":
+        parsed = parse_read_only_intent(db, query) or parsed
     intent = parsed["intent"]
     response = "Не успях да разбера въпроса Ви. Опитайте с други думи."
 
@@ -118,7 +123,7 @@ def handle_voice_command(person_id: int | None, text_query: str, db: Session) ->
                     sender_id=person.id,
                     recipient_id=recipient.id,
                     text=parsed["message_text"],
-                    valid_until=now_bg() + timedelta(hours=24),
+                    valid_until=now_bg() + timedelta(hours=int(get_setting(db, "messages.default_valid_hours"))),
                     status="active",
                 )
                 db.add(message)
@@ -178,6 +183,15 @@ def handle_voice_command(person_id: int | None, text_query: str, db: Session) ->
 
     elif intent == "check_room":
         room = str(parsed["room_number"] or "").lower().strip()
+        managed_rooms = db.query(Room).filter(Room.active.is_(True)).all()
+        managed_match = next((
+            item for item in managed_rooms
+            if room and (room == item.code.lower() or room in item.name.lower() or item.name.lower() in room)
+        ), None)
+        if managed_match:
+            response = managed_match.directions or f"{managed_match.code} — {managed_match.name}. Няма добавени указания за посоката."
+        else:
+            response = None
         rooms = {
             "304": "Кабинет 304 се намира на третия етаж, дясно крило.",
             "302": "Кабинет 302 се намира на третия етаж, ляво крило.",
@@ -188,7 +202,7 @@ def handle_voice_command(person_id: int | None, text_query: str, db: Session) ->
             "учителска стая": "Учителската стая е на втория етаж.",
             "директор": "Кабинетът на директора се намира на втория етаж.",
         }
-        response = next((value for key, value in rooms.items() if key in room or room in key), None) if room else None
+        response = response or (next((value for key, value in rooms.items() if key in room or room in key), None) if room else None)
         response = response or (f"Не намерих кабинет '{parsed['room_number']}'." if room else "Кой кабинет търсите?")
 
     elif intent == "show_events":
@@ -199,6 +213,9 @@ def handle_voice_command(person_id: int | None, text_query: str, db: Session) ->
             "Днес има следните събития: " + ", ".join(f"'{e.title}' в {e.room}" for e in events) + "."
             if events else "Няма планирани събития за днес."
         )
+
+    elif intent == "unknown":
+        response = answer_from_public_school_context(db, text_query) or response
 
     safe_metadata = {"intent": intent, "response": response}
     if intent not in ("leave_message", "check_messages"):

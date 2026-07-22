@@ -1,0 +1,46 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+<section class="school-welcome">
+  <div><span class="school-pill">Днес</span><h2>{{ school_name }}</h2><p>Ето какво се случва в системата в момента.</p></div>
+  <div class="school-live"><span></span> Системата работи</div>
+</section>
+
+<section class="school-stat-grid" aria-label="Обобщение">
+  <article class="school-stat"><i class="fa-solid fa-users"></i><div><strong>{{ counts.people }}</strong><span>активни профила</span></div><small>{{ counts.students }} ученици · {{ counts.teachers }} учители</small></article>
+  <article class="school-stat"><i class="fa-solid fa-calendar-day"></i><div><strong>{{ counts.lessons }}</strong><span>учебни часа днес</span></div><small>{{ counts.events }} събития</small></article>
+  <article class="school-stat"><i class="fa-solid fa-envelope"></i><div><strong>{{ counts.messages }}</strong><span>чакащи съобщения</span></div><a href="/admin/message/list">Преглед</a></article>
+  <article class="school-stat"><i class="fa-solid fa-display"></i><div><strong>{{ online_devices }}/{{ device_total }}</strong><span>устройства онлайн</span></div><small>{{ screens_connected }} WebSocket екрана</small></article>
+</section>
+
+<div class="school-two-columns">
+  <section class="school-card">
+    <header><div><p class="school-eyebrow">Бързи действия</p><h2>Какво искате да направите?</h2></div></header>
+    <div class="school-action-grid">
+      {% if 'people.manage' in request.session.get('permissions', []) %}<a href="/admin/person/create"><i class="fa-solid fa-user-plus"></i><span><strong>Добави човек</strong><small>Ученик, учител или гост</small></span></a>{% endif %}
+      {% if 'badges.manage' in request.session.get('permissions', []) %}<a href="/admin/badges/issue"><i class="fa-solid fa-qrcode"></i><span><strong>Издай бадж</strong><small>Нов QR код за печат</small></span></a>{% endif %}
+      {% if 'schedule.import' in request.session.get('permissions', []) %}<a href="/admin/schedule-import"><i class="fa-solid fa-file-arrow-up"></i><span><strong>Импортирай разписание</strong><small>CSV/XLSX с преглед</small></span></a>{% endif %}
+      {% if 'content.manage' in request.session.get('permissions', []) %}<a href="/admin/announcement/create"><i class="fa-solid fa-bullhorn"></i><span><strong>Публикувай обява</strong><small>Новина или спешно известие</small></span></a>{% endif %}
+      {% if 'devices.manage' in request.session.get('permissions', []) %}<a href="/admin/devices"><i class="fa-solid fa-link"></i><span><strong>Свържи устройство</strong><small>Кратък еднократен код</small></span></a>{% endif %}
+      {% if 'backups.manage' in request.session.get('permissions', []) %}<a href="/admin/backups"><i class="fa-solid fa-database"></i><span><strong>Направи backup</strong><small>Проверено резервно копие</small></span></a>{% endif %}
+    </div>
+  </section>
+
+  <section class="school-card">
+    <header><div><p class="school-eyebrow">Здраве</p><h2>Състояние на системата</h2></div><a href="/admin/devices">Устройства</a></header>
+    {% include "admin/fragments/dashboard_health.html" %}
+  </section>
+</div>
+
+<div class="school-two-columns">
+  <section class="school-card">
+    <header><div><p class="school-eyebrow">Устройства</p><h2>Последно състояние</h2></div></header>
+    {% if devices %}<div class="school-table-wrap"><table class="school-table"><thead><tr><th>Име</th><th>Място</th><th>Състояние</th></tr></thead><tbody>{% for device in devices[:6] %}<tr><td><strong>{{ device.name }}</strong><small>{{ device.identifier }}</small></td><td>{{ device.zone_id or 'Без зона' }}</td><td><span class="school-status school-status-{{ device.status }}">{{ device.status }}</span></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="school-empty"><i class="fa-solid fa-display"></i><p>Все още няма сдвоени устройства.</p></div>{% endif %}
+  </section>
+  <section class="school-card">
+    <header><div><p class="school-eyebrow">Одит</p><h2>Последни действия</h2></div>{% if 'audit.view' in request.session.get('permissions', []) %}<a href="/admin/admin-audit-event/list">Всички</a>{% endif %}</header>
+    <ul class="school-timeline">{% for item in recent_audit %}<li><span></span><div><strong>{{ item.summary }}</strong><small>{{ item.actor.display_name if item.actor else 'Система' }} · {{ item.created_at.strftime('%d.%m %H:%M') }}</small></div></li>{% else %}<li><div><strong>Няма записани действия</strong></div></li>{% endfor %}</ul>
+  </section>
+</div>
+
+<section id="quick-help" class="school-card school-help-card"><i class="fa-regular fa-circle-question"></i><div><h2>Нужна ви е помощ?</h2><p>Започнете от „Бързи действия“. Опасните операции винаги имат преглед или изрично потвърждение.</p></div></section>
+{% endblock %}

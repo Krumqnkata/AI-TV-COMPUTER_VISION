@@ -16,6 +16,7 @@ from engine.db import (
 )
 from web.schemas import QRDetectionRequest
 from web.services.runtime import runtime_registry
+from web.services.admin_control import get_setting
 
 
 def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
@@ -26,6 +27,8 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
         request.camera_id,
         request.confidence,
         now,
+        same_camera_seconds=int(get_setting(db, "qr.same_camera_seconds")),
+        cross_camera_seconds=int(get_setting(db, "qr.cross_camera_seconds")),
     )
     if duplicate_reason:
         return {"status": "ignored", "reason": duplicate_reason}
@@ -73,6 +76,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
         interaction_point_id,
         screen_id,
         now,
+        session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
     )
     if not acquired:
         return {"status": "ignored", "reason": "kiosk_busy"}

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -80,3 +80,22 @@ class BadgeStatusRequest(BaseModel):
 
 class PersonStatusRequest(BaseModel):
     active: bool
+
+
+class DeviceEnrollRequest(BaseModel):
+    identifier: str = Field(min_length=3, max_length=100)
+    name: str = Field(min_length=2, max_length=150)
+    device_type: str = Field(min_length=2, max_length=30)
+    capabilities: list[str] = Field(default_factory=list, max_length=30)
+    software_version: Optional[str] = Field(default=None, max_length=50)
+
+
+class DeviceHeartbeatRequest(BaseModel):
+    status: str = Field(default="online", max_length=30)
+    software_version: Optional[str] = Field(default=None, max_length=50)
+    capabilities: Optional[list[str]] = Field(default=None, max_length=30)
+
+
+class DeviceCommandAckRequest(BaseModel):
+    success: bool
+    result: dict[str, Any] = Field(default_factory=dict)

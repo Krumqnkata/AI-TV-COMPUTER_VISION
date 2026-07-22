@@ -40,11 +40,14 @@ class RuntimeRegistry:
         camera_id: str,
         confidence: float,
         now: datetime,
+        same_camera_seconds: int = 10,
+        cross_camera_seconds: int = 5,
     ) -> str | None:
         with self._lock:
+            retention_seconds = max(30, same_camera_seconds * 3, cross_camera_seconds * 3)
             expired = [
                 key for key, info in self.recent_detections.items()
-                if (now - info["timestamp"]).total_seconds() > 30
+                if (now - info["timestamp"]).total_seconds() > retention_seconds
             ]
             for key in expired:
                 self.recent_detections.pop(key, None)
@@ -52,9 +55,9 @@ class RuntimeRegistry:
             previous = self.recent_detections.get(token_fingerprint)
             if previous:
                 elapsed = (now - previous["timestamp"]).total_seconds()
-                if previous["camera_id"] == camera_id and elapsed < 10:
+                if previous["camera_id"] == camera_id and elapsed < same_camera_seconds:
                     return "duplicate_same_camera"
-                if previous["camera_id"] != camera_id and elapsed < 5:
+                if previous["camera_id"] != camera_id and elapsed < cross_camera_seconds:
                     if confidence > previous["confidence"]:
                         previous.update(camera_id=camera_id, confidence=confidence, timestamp=now)
                         return "duplicate_other_camera_replaced"
@@ -82,11 +85,12 @@ class RuntimeRegistry:
         interaction_point_id: int | None,
         screen_id: str | None,
         now: datetime,
+        session_timeout_seconds: int = 60,
     ) -> tuple[bool, str]:
         key = self.session_key(zone_id, interaction_point_id, screen_id)
         with self._lock:
             active = self.active_sessions.get(key)
-            if active and (now - active.last_activity).total_seconds() < 60:
+            if active and (now - active.last_activity).total_seconds() < session_timeout_seconds:
                 if active.person_id != person_id:
                     return False, key
                 active.last_activity = now
@@ -112,10 +116,11 @@ class RuntimeRegistry:
         now: datetime,
         zone_id: str | None = None,
         screen_id: str | None = None,
+        session_timeout_seconds: int = 60,
     ) -> bool:
         with self._lock:
             for session in self.active_sessions.values():
-                if session.person_id != person_id or (now - session.last_activity).total_seconds() >= 60:
+                if session.person_id != person_id or (now - session.last_activity).total_seconds() >= session_timeout_seconds:
                     continue
                 if screen_id and session.screen_id != screen_id:
                     continue

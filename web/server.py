@@ -15,13 +15,17 @@ from web.admin_panel import setup_admin
 from web.database import SessionLocal, db_engine, get_db, init_schema
 from web.routers.admin_api import router as admin_api_router
 from web.routers.device_api import router as device_api_router
+from web.routers.device_control import router as device_control_router
 from web.routers.system import router as system_router
 from web.security import ensure_runtime_secrets, install_security_middleware
 from web.services.runtime import runtime_registry
+from web.services.admin_control import ensure_admin_foundation
 
 
 ensure_runtime_secrets()
 init_schema()
+with SessionLocal() as _startup_db:
+    ensure_admin_foundation(_startup_db)
 
 app = FastAPI(title="School AI Control Panel", version="2.0.0")
 app.add_middleware(
@@ -29,16 +33,20 @@ app.add_middleware(
     secret_key=Config.ADMIN_SECRET_KEY,
     same_site="strict",
     https_only=Config.COOKIE_SECURE,
-    max_age=8 * 60 * 60,
+    max_age=Config.ADMIN_SESSION_SECONDS,
 )
 install_security_middleware(app)
 
 audio_cache = Config.PROJECT_ROOT / "data" / "audio_cache"
 audio_cache.mkdir(parents=True, exist_ok=True)
 app.mount("/audio", StaticFiles(directory=str(audio_cache)), name="audio")
+admin_static = Config.PROJECT_ROOT / "web" / "static" / "admin"
+admin_static.mkdir(parents=True, exist_ok=True)
+app.mount("/static/admin", StaticFiles(directory=str(admin_static)), name="admin-static")
 
 app.include_router(system_router)
 app.include_router(device_api_router)
+app.include_router(device_control_router)
 app.include_router(admin_api_router)
 admin_panel = setup_admin(app)
 

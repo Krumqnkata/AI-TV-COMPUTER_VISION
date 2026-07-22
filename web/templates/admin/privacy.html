@@ -1,0 +1,7 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+{% include "admin/_alerts.html" %}
+<section class="school-boundary"><i class="fa-solid fa-shield-heart"></i><div><strong>Минимизиране на данните</strong><p>Системата изтрива само записи, които са по-стари от зададения срок. Профили, активни разписания и съдържание не се засягат.</p></div></section>
+<section class="school-card"><header><div><p class="school-eyebrow">Предварителен преглед</p><h2>Какво е извън срока</h2></div><a href="/admin/settings">Промени сроковете</a></header><div class="school-retention-grid">{% for key, item in preview.items() %}<article><i class="fa-solid fa-{{ 'clock-rotate-left' if key == 'system_events' else 'envelope' if key == 'delivered_messages' else 'file-import' if key == 'import_jobs' else 'user-shield' }}"></i><strong>{{ item.count }}</strong><span>{{ item.label }}</span><small>преди {{ item.before.strftime('%d.%m.%Y') }}</small></article>{% endfor %}</div></section>
+{% if can_manage %}<form method="post" action="/admin/privacy/cleanup" class="school-card school-danger-zone"><header><div><p class="school-eyebrow">Необратима операция</p><h2>Изпълни почистването</h2><p>Ще се запази само обобщен одит за броя премахнати записи.</p></div></header><label class="school-field">За потвърждение напишете <strong>ИЗТРИЙ</strong><input name="confirmation" required autocomplete="off"></label><button class="school-button school-button-danger" type="submit"><i class="fa-solid fa-broom"></i> Премахни записите извън срока</button></form>{% endif %}
+{% endblock %}
