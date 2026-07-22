@@ -51,7 +51,7 @@ python -m venv .venv
 Copy-Item .env.example .env.local
 ```
 
-2. Генерирайте различни силни стойности за `ADMIN_SECRET_KEY` и `SETTINGS_MASTER_KEY`. Не ги commit-вайте и не използвайте примерните placeholders.
+2. Генерирайте различни силни стойности за `ADMIN_SECRET_KEY` и `SETTINGS_MASTER_KEY`. Не ги commit-вайте и не използвайте примерните placeholders. Останалите настройки в `.env.example` са коментирани — активирайте само тези, които наистина променят default поведението.
 
 3. Създайте или обновете schema-та само чрез Alembic:
 
