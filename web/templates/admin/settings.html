@@ -1,0 +1,30 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+{% include "admin/_alerts.html" %}
+<div class="school-boundary"><i class="fa-solid fa-shield-halved"></i><div><strong>Безопасна граница</strong><p>Тук се управлява поведението на приложението. Адресът на базата, TLS и master/session ключовете остават deployment настройки.</p></div></div>
+<form method="post" action="/admin/settings/save" class="school-form-stack">
+  {% for category, items in groups.items() %}
+  <section class="school-card school-settings-section">
+    <header><div><p class="school-eyebrow">Настройки</p><h2>{{ category }}</h2></div></header>
+    <div class="school-settings-grid">
+      {% for item in items %}{% set definition = item.definition %}{% set field_enabled = can_manage and (can_manage_ai or not definition.key.startswith('assistant.')) %}
+      <label class="school-field {{ 'school-switch-field' if definition.value_type == 'boolean' else '' }}">
+        <span><strong>{{ definition.label }}</strong><small>{{ definition.description }}</small></span>
+        {% if definition.value_type == 'boolean' %}<input name="{{ definition.key }}" type="checkbox" value="true" {{ 'checked' if item.value else '' }} {{ 'disabled' if not field_enabled else '' }}><span class="school-switch" aria-hidden="true"></span>
+        {% elif definition.value_type == 'choice' %}<select name="{{ definition.key }}" {{ 'disabled' if not field_enabled else '' }}>{% for choice in definition.choices %}<option value="{{ choice }}" {{ 'selected' if choice == item.value else '' }}>{{ choice }}</option>{% endfor %}</select>
+        {% elif definition.value_type == 'color' %}<span class="school-color-input"><input name="{{ definition.key }}" type="color" value="{{ item.value }}" {{ 'disabled' if not field_enabled else '' }}><input name="{{ definition.key }}" type="text" value="{{ item.value }}" pattern="#[0-9a-fA-F]{6}" {{ 'disabled' if not field_enabled else '' }}></span>
+        {% else %}<input name="{{ definition.key }}" type="{{ 'number' if definition.value_type in ['integer', 'number'] else 'text' }}" value="{{ item.value }}" {% if definition.minimum is not none %}min="{{ definition.minimum }}"{% endif %} {% if definition.maximum is not none %}max="{{ definition.maximum }}"{% endif %} {% if definition.value_type == 'number' %}step="0.05"{% endif %} {{ 'disabled' if not field_enabled else '' }}>
+        {% endif %}
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  {% if can_manage %}<div class="school-sticky-actions"><span>Промените влизат в сила след запис.</span><button class="school-button school-button-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Запази настройките</button></div>{% endif %}
+</form>
+
+{% if can_manage_ai %}<section class="school-card">
+  <header><div><p class="school-eyebrow">Криптирани стойности</p><h2>AI ключове</h2><p>Съществуващата стойност никога не се показва.</p></div></header>
+  <div class="school-secret-grid">{% for secret in secrets %}<form method="post" action="/admin/settings/secret" class="school-secret-card"><input type="hidden" name="key" value="{{ secret.key }}"><div><strong>{{ secret.label }}</strong><span class="school-status {{ 'school-status-online' if secret.configured else 'school-status-offline' }}">{{ 'Конфигуриран' if secret.configured else 'Липсва' }}</span>{% if secret.fingerprint %}<small>Отпечатък: {{ secret.fingerprint }}</small>{% endif %}</div><label class="school-field">Нова стойност<input name="value" type="password" required autocomplete="new-password" placeholder="Въведете само при промяна"></label><button class="school-button" type="submit">Обнови</button></form>{% endfor %}</div>
+</section>{% endif %}
+{% endblock %}

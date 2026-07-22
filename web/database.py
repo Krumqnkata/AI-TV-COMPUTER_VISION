@@ -2,6 +2,9 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from engine.db import Base
+# Import the additive control-centre models before ``create_all`` so their
+# tables are registered in the shared metadata.
+from engine import admin_models as _admin_models  # noqa: F401
 from utils.config import Config
 
 

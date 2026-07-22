@@ -1,0 +1,7 @@
+<ul id="system-health" class="school-health-list" hx-get="/admin/dashboard/health" hx-trigger="every {{ refresh_seconds }}s" hx-swap="outerHTML">
+  <li><span class="school-dot school-dot-good"></span><div><strong>Сървър и база</strong><small>Достъпни</small></div></li>
+  <li><span class="school-dot {{ 'school-dot-good' if master_key_configured else 'school-dot-warning' }}"></span><div><strong>Криптиране на настройки</strong><small>{{ 'Готово' if master_key_configured else 'Нужна е deployment настройка' }}</small></div></li>
+  <li><span class="school-dot {{ 'school-dot-good' if online_devices == device_total else 'school-dot-warning' }}"></span><div><strong>Устройства онлайн</strong><small>{{ online_devices }} от {{ device_total }}</small></div></li>
+  <li><span class="school-dot {{ 'school-dot-good' if last_backup and last_backup.status == 'verified' else 'school-dot-warning' }}"></span><div><strong>Последен backup</strong><small>{{ last_backup.created_at.strftime('%d.%m.%Y %H:%M') if last_backup else 'Все още няма' }}</small></div></li>
+  <li><span class="school-dot {{ 'school-dot-good' if failed_imports == 0 else 'school-dot-warning' }}"></span><div><strong>Импорти с проблем</strong><small>{{ failed_imports }}</small></div></li>
+</ul>

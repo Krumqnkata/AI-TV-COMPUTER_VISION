@@ -1,5 +1,6 @@
 import hmac
 import secrets
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, status
@@ -7,9 +8,16 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from engine.csrf import CSRF_COOKIE_NAME, generate_csrf_token, verify_csrf_token
+from engine.admin_models import StaffAccount
 from engine.db import Person
 from utils.config import Config
 from web.database import get_db
+from web.services.admin_control import (
+    has_permission,
+    permissions_for_account,
+    provision_staff_from_person,
+)
+from web.services.device_control import DeviceContext, authenticate_device
 
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -24,45 +32,83 @@ def request_has_valid_device_key(request: Request) -> bool:
     return verify_device_key_value(request.headers.get("x-device-key"))
 
 
-def require_device(request: Request) -> None:
-    if not Config.DEVICE_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DEVICE_API_KEY не е конфигуриран на сървъра",
-        )
-    if not request_has_valid_device_key(request):
+def require_device(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> DeviceContext:
+    context = authenticate_device(
+        db,
+        request.headers.get("x-device-id"),
+        request.headers.get("x-device-key"),
+    )
+    if context is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Невалиден ключ на крайното устройство",
         )
+    return context
 
 
 def get_staff_session(
     request: Request,
     db: Session = Depends(get_db),
-) -> Person:
-    person_id = request.session.get("person_id")
-    if not person_id:
+) -> StaffAccount:
+    staff_id = request.session.get("staff_id")
+    account = db.get(StaffAccount, staff_id) if staff_id else None
+    if account is None and request.session.get("person_id"):
+        person = db.get(Person, request.session["person_id"])
+        if person and person.active and person.role in ("admin", "teacher") and person.password_hash:
+            account = provision_staff_from_person(db, person)
+            db.commit()
+            db.refresh(account)
+    if account is None:
         raise HTTPException(status_code=401, detail="Необходим е вход в административния панел")
-    user = db.get(Person, person_id)
-    if not user or not user.active or user.role not in ("admin", "teacher"):
+
+    authenticated_at = request.session.get("authenticated_at")
+    if authenticated_at:
+        try:
+            session_started = datetime.fromisoformat(authenticated_at)
+            if session_started.tzinfo is None:
+                session_started = session_started.replace(tzinfo=UTC)
+            expired = session_started + timedelta(seconds=Config.ADMIN_SESSION_SECONDS) < datetime.now(UTC)
+        except (TypeError, ValueError):
+            expired = True
+    else:
+        expired = False  # compatibility with sessions issued before staff migration
+    if not account.active or expired:
         request.session.clear()
         raise HTTPException(status_code=401, detail="Административната сесия е невалидна")
-    return user
+    request.session["staff_id"] = account.id
+    request.session["role_codes"] = [role.code for role in account.roles if role.active]
+    request.session["permissions"] = sorted(permissions_for_account(account))
+    return account
 
 
-def require_admin(user: Person = Depends(get_staff_session)) -> Person:
-    if user.role != "admin":
+def require_admin(user: StaffAccount = Depends(get_staff_session)) -> StaffAccount:
+    if not any(role.code in {"superadmin", "school_admin"} and role.active for role in user.roles):
         raise HTTPException(status_code=403, detail="Само за администратори")
     return user
+
+
+def require_permission(permission_code: str):
+    def dependency(user: StaffAccount = Depends(get_staff_session)) -> StaffAccount:
+        if not has_permission(user, permission_code):
+            raise HTTPException(status_code=403, detail="Нямате право за това действие")
+        return user
+    return dependency
 
 
 def require_device_or_staff(
     request: Request,
     db: Session = Depends(get_db),
-) -> Person | None:
-    if request_has_valid_device_key(request):
-        return None
+) -> StaffAccount | DeviceContext:
+    context = authenticate_device(
+        db,
+        request.headers.get("x-device-id"),
+        request.headers.get("x-device-key"),
+    )
+    if context is not None:
+        return context
     return get_staff_session(request, db)
 
 
@@ -97,7 +143,8 @@ def install_security_middleware(app) -> None:
                     return JSONResponse({"detail": "Invalid request origin"}, status_code=403)
             elif request.url.path.startswith("/api"):
                 has_device_credentials = request.headers.get("x-device-key") is not None
-                if not has_device_credentials and not verify_csrf_token(request):
+                is_enrollment = request.url.path == "/api/devices/enroll"
+                if not has_device_credentials and not is_enrollment and not verify_csrf_token(request):
                     return JSONResponse({"detail": "Invalid CSRF token"}, status_code=403)
 
         response = await call_next(request)
@@ -117,3 +164,4 @@ def ensure_runtime_secrets() -> None:
         # Development-only process secret. Production must provide a stable value
         # so sessions survive restarts.
         Config.ADMIN_SECRET_KEY = secrets.token_urlsafe(48)
+        Config.ADMIN_SECRET_IS_EPHEMERAL = True

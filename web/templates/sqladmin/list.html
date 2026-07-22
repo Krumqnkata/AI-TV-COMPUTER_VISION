@@ -1,0 +1,15 @@
+{% extends "sqladmin_original/list.html" %}
+
+{% block model_menu_bar %}
+  {% if model_view.can_export %}
+    {% if model_view.export_types|length > 1 %}
+    <div class="ms-2 d-inline-block dropdown"><button class="btn btn-secondary dropdown-toggle" data-bs-toggle="dropdown">Експорт</button><ul class="dropdown-menu">{% for export_type in model_view.export_types %}<li><a class="dropdown-item" href="{{ url_for('admin:export', identity=model_view.identity, export_type=export_type) }}">{{ export_type|upper }}</a></li>{% endfor %}</ul></div>
+    {% elif model_view.export_types|length == 1 %}<a class="btn btn-secondary ms-2" href="{{ url_for('admin:export', identity=model_view.identity, export_type=model_view.export_types[0]) }}">Експорт</a>{% endif %}
+  {% endif %}
+  {% if can_import and model_view._can_manage(request) %}<a class="btn btn-primary ms-2" id="action-import" href="#" data-name="{{ model_view.name }}" data-url="{{ url_for('admin:import', identity=model_view.identity) }}" data-bs-toggle="modal" data-bs-target="#modal-import">Импорт CSV</a>{% endif %}
+  {% if model_view.can_create and model_view._can_manage(request) %}<a href="{{ url_for('admin:create', identity=model_view.identity) }}" class="btn btn-primary ms-2"><i class="fa-solid fa-plus"></i> Нов запис</a>{% endif %}
+{% endblock %}
+{% block content %}
+  {% if not model_view._can_manage(request) %}<style>#action-delete { display:none !important; }</style>{% endif %}
+  {{ super() }}
+{% endblock %}

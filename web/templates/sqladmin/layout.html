@@ -1,0 +1,55 @@
+{% extends "sqladmin_original/base.html" %}
+{% from 'sqladmin_original/_macros.html' import display_menu %}
+
+{% block head_meta %}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+{% endblock %}
+
+{% block head_tail %}
+<link rel="stylesheet" href="/static/admin/admin.css">
+{% endblock %}
+
+{% block body %}
+<div class="school-shell {{ 'school-compact' if request.session.get('compact') else '' }}" style="--school-blue: {{ request.session.get('accent', '#2563eb') }}">
+  <aside class="school-sidebar" aria-label="Основна навигация">
+    <a class="school-brand" href="/admin/dashboard">
+      <span class="school-brand-mark" aria-hidden="true">AI</span>
+      <span><strong>{{ request.session.get('school_name', 'Училищен център') }}</strong><small>Лесно управление</small></span>
+    </a>
+    <button class="school-menu-toggle" type="button" data-admin-menu-toggle aria-controls="school-nav" aria-expanded="false">
+      <i class="fa-solid fa-bars" aria-hidden="true"></i> Меню
+    </button>
+    <nav id="school-nav" class="school-nav">
+      {{ display_menu(admin._menu, request) }}
+    </nav>
+    <div class="school-user">
+      <div class="school-avatar" aria-hidden="true">{{ (request.session.get('display_name') or 'A')[0] }}</div>
+      <div><strong>{{ request.session.get('display_name', 'Администратор') }}</strong><small>Защитена сесия</small></div>
+    </div>
+    <a class="school-logout" href="{{ request.url_for('admin:logout') }}"><i class="fa-solid fa-arrow-right-from-bracket"></i> Изход</a>
+  </aside>
+
+  <main class="school-main">
+    <header class="school-topbar">
+      <div>
+        <p class="school-eyebrow">Училищен AI асистент</p>
+        <h1>{{ title or 'Контролен център' }}</h1>
+        {% if subtitle %}<p class="school-subtitle">{{ subtitle }}</p>{% endif %}
+      </div>
+      <a class="school-help" href="/admin/dashboard#quick-help"><i class="fa-regular fa-circle-question"></i> Помощ</a>
+    </header>
+    <div class="school-content">
+      {% block content %}{% endblock %}
+      {% block flash %}{% include 'sqladmin_original/flash.html' %}{% endblock %}
+      {% block secret_modal %}{% include 'sqladmin_original/secret_modal.html' %}{% endblock %}
+    </div>
+  </main>
+</div>
+{% endblock %}
+
+{% block tail %}
+<script src="/static/admin/vendor/htmx.min.js" defer></script>
+<script src="/static/admin/admin.js" defer></script>
+{% endblock %}

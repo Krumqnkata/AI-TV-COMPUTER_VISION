@@ -4,7 +4,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from engine.db import Message, Person, SystemEvent, now_bg
+from engine.db import DeliveryReceipt, Message, Person, SystemEvent, now_bg
 from web.connections import connection_manager
 from web.database import get_db
 from web.schemas import (
@@ -16,16 +16,39 @@ from web.schemas import (
 )
 from web.security import require_device
 from web.services.assistant import handle_voice_command
+from web.services.admin_control import get_setting
 from web.services.badges import process_badge_detection
 from web.services.delivery import acknowledge_delivery
+from web.services.device_control import DeviceContext, context_allows_scope
 from web.services.runtime import runtime_registry
 
 
 router = APIRouter(prefix="/api", tags=["devices"], dependencies=[Depends(require_device)])
 
 
+def _require_scope(
+    context: DeviceContext,
+    *,
+    zone_id: str | None = None,
+    screen_id: str | None = None,
+    camera_identifier: str | None = None,
+) -> None:
+    if not context_allows_scope(
+        context,
+        zone_id=zone_id,
+        screen_id=screen_id,
+        camera_identifier=camera_identifier,
+    ):
+        raise HTTPException(status_code=403, detail="Устройството няма достъп до тази зона или екран")
+
+
 @router.post("/detect_qr")
-async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
+async def detect_qr(
+    request: QRDetectionRequest,
+    db: Session = Depends(get_db),
+    device: DeviceContext = Depends(require_device),
+):
+    _require_scope(device, zone_id=request.zone_id, camera_identifier=request.camera_id)
     result = process_badge_detection(request, db)
     ws_type = result.pop("ws_type", None)
     ws_data = result.pop("ws_data", None)
@@ -41,9 +64,13 @@ async def detect_qr(request: QRDetectionRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/sessions/close")
-async def close_session(request: CloseSessionRequest):
+async def close_session(
+    request: CloseSessionRequest,
+    device: DeviceContext = Depends(require_device),
+):
     if not any((request.zone_id, request.interaction_point_id, request.screen_id)):
         raise HTTPException(status_code=400, detail="Посочете зона, точка или екран")
+    _require_scope(device, zone_id=request.zone_id, screen_id=request.screen_id)
     closed = runtime_registry.close(
         zone_id=request.zone_id,
         interaction_point_id=request.interaction_point_id,
@@ -59,7 +86,12 @@ async def close_session(request: CloseSessionRequest):
 
 
 @router.post("/messages")
-def create_message(request: MessageCreateRequest, db: Session = Depends(get_db)):
+def create_message(
+    request: MessageCreateRequest,
+    db: Session = Depends(get_db),
+    device: DeviceContext = Depends(require_device),
+):
+    _require_scope(device, zone_id=request.zone_id, screen_id=request.screen_id)
     sender = db.get(Person, request.sender_id)
     recipient = db.get(Person, request.recipient_id)
     if not sender or not recipient or not sender.active or not recipient.active:
@@ -71,6 +103,7 @@ def create_message(request: MessageCreateRequest, db: Session = Depends(get_db))
         now_bg(),
         zone_id=request.zone_id,
         screen_id=request.screen_id,
+        session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
     ):
         raise HTTPException(status_code=403, detail="Подателят няма активна сесия на тази точка")
     message = Message(
@@ -98,7 +131,19 @@ def create_message(request: MessageCreateRequest, db: Session = Depends(get_db))
 
 
 @router.get("/messages/pending")
-def get_pending_messages(person_id: int, db: Session = Depends(get_db)):
+def get_pending_messages(
+    person_id: int,
+    db: Session = Depends(get_db),
+    device: DeviceContext = Depends(require_device),
+):
+    if device.device and not runtime_registry.person_has_session(
+        person_id,
+        now_bg(),
+        zone_id=device.device.zone_id,
+        screen_id=device.device.screen_id,
+        session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
+    ):
+        raise HTTPException(status_code=403, detail="Няма активна сесия на това устройство")
     messages = db.query(Message).filter(
         Message.recipient_id == person_id,
         Message.status == "active",
@@ -116,13 +161,21 @@ def get_pending_messages(person_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/voice_command")
-def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_db)):
+def voice_command(
+    request: VoiceCommandRequest,
+    db: Session = Depends(get_db),
+    device: DeviceContext = Depends(require_device),
+):
+    _require_scope(device, zone_id=request.zone_id, screen_id=request.screen_id)
+    if not bool(get_setting(db, "features.voice_enabled")):
+        raise HTTPException(status_code=403, detail="Гласовият асистент е изключен от администратора")
     if request.person_id:
         if not runtime_registry.person_has_session(
             request.person_id,
             now_bg(),
             zone_id=request.zone_id,
             screen_id=request.screen_id,
+            session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
         ):
             raise HTTPException(status_code=403, detail="Потребителят няма активна сесия на тази точка")
         runtime_registry.touch_person(request.person_id, now_bg())
@@ -130,7 +183,14 @@ def voice_command(request: VoiceCommandRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/deliveries/ack")
-def delivery_ack(request: DeliveryAckRequest, db: Session = Depends(get_db)):
+def delivery_ack(
+    request: DeliveryAckRequest,
+    db: Session = Depends(get_db),
+    device: DeviceContext = Depends(require_device),
+):
+    receipt = db.query(DeliveryReceipt).filter(DeliveryReceipt.delivery_id == request.delivery_id).first()
+    if receipt:
+        _require_scope(device, zone_id=receipt.zone_id, screen_id=receipt.screen_id)
     result = acknowledge_delivery(db, request.delivery_id, request.message_ids)
     if not result["success"]:
         raise HTTPException(status_code=404 if result["reason"] == "unknown_delivery" else 409, detail=result["reason"])

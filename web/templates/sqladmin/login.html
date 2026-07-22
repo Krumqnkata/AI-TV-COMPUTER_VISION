@@ -1,0 +1,34 @@
+{% extends "sqladmin_original/base.html" %}
+{% block head_tail %}<link rel="stylesheet" href="/static/admin/admin.css">{% endblock %}
+{% block body %}
+<main class="school-login-page">
+  <section class="school-login-intro">
+    <span class="school-brand-mark school-brand-mark-large">AI</span>
+    <p class="school-eyebrow">Училищен AI асистент</p>
+    <h1>Добре дошли в контролния център</h1>
+    <p>Управлявайте хора, разписание, съдържание и устройства от едно ясно място.</p>
+    <ul>
+      <li><i class="fa-solid fa-check"></i> Обяснения на разбираем език</li>
+      <li><i class="fa-solid fa-check"></i> Достъп според служебната роля</li>
+      <li><i class="fa-solid fa-check"></i> Одит на важните промени</li>
+    </ul>
+  </section>
+  <form class="school-login-card" action="{{ url_for('admin:login') }}" method="POST" autocomplete="on">
+    <div>
+      <p class="school-eyebrow">За служители</p>
+      <h2>Вход</h2>
+      <p class="school-muted">Използвайте своя отделен служебен профил.</p>
+    </div>
+    {% if error %}<div class="school-alert school-alert-error" role="alert">Невалидни данни или временно заключен профил.</div>{% endif %}
+    <label class="school-field">Потребителско име
+      <input name="username" type="text" autocomplete="username" required autofocus placeholder="напр. ivan.petrov">
+    </label>
+    <label class="school-field">Парола
+      <span class="school-password"><input id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" data-toggle-password="login-password" aria-label="Покажи паролата"><i class="fa-regular fa-eye"></i></button></span>
+    </label>
+    <button class="school-button school-button-primary school-button-wide" type="submit">Вход в системата</button>
+    <p class="school-login-note"><i class="fa-solid fa-lock"></i> След 5 неуспешни опита профилът се заключва временно.</p>
+  </form>
+</main>
+{% endblock %}
+{% block tail %}<script src="/static/admin/admin.js" defer></script>{% endblock %}

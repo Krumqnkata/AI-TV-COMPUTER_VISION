@@ -67,7 +67,9 @@ class Person(Base):
     system_events = relationship("SystemEvent", back_populates="person")
 
     def __repr__(self):
-        return f"<Person(id={self.id}, name='{self.full_name}', role='{self.role}')>"
+        return self.full_name
+
+    __str__ = __repr__
 
 
 class Badge(Base):
@@ -109,7 +111,9 @@ class InteractionPoint(Base):
     system_events = relationship("SystemEvent", back_populates="interaction_point")
 
     def __repr__(self):
-        return f"<InteractionPoint(id={self.id}, name='{self.name}', zone='{self.zone_id}', type='{self.type}')>"
+        return f"{self.name} — {self.zone_id}"
+
+    __str__ = __repr__
 
 
 class Camera(Base):
@@ -131,7 +135,9 @@ class Camera(Base):
     system_events = relationship("SystemEvent", back_populates="camera")
 
     def __repr__(self):
-        return f"<Camera(id={self.id}, name='{self.name}', zone='{self.zone_id}')>"
+        return f"{self.name} — {self.zone_id}"
+
+    __str__ = __repr__
 
 
 class Message(Base):
@@ -197,7 +203,9 @@ class Event(Base):
     room = Column(String(50), nullable=True)  # Кабинет
 
     def __repr__(self):
-        return f"<Event(id={self.id}, title='{self.title}', room='{self.room}')>"
+        return self.title
+
+    __str__ = __repr__
 
 
 class SystemEvent(Base):

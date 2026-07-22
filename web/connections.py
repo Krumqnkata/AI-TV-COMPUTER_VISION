@@ -12,6 +12,7 @@ class ScreenConnection:
     websocket: WebSocket
     screen_id: str
     zone_id: str
+    device_id: str | None = None
 
 
 class ConnectionManager:
@@ -19,8 +20,19 @@ class ConnectionManager:
         self._connections: dict[WebSocket, ScreenConnection] = {}
         self._lock = asyncio.Lock()
 
-    async def register(self, websocket: WebSocket, screen_id: str, zone_id: str) -> ScreenConnection:
-        connection = ScreenConnection(websocket=websocket, screen_id=screen_id, zone_id=zone_id)
+    async def register(
+        self,
+        websocket: WebSocket,
+        screen_id: str,
+        zone_id: str,
+        device_id: str | None = None,
+    ) -> ScreenConnection:
+        connection = ScreenConnection(
+            websocket=websocket,
+            screen_id=screen_id,
+            zone_id=zone_id,
+            device_id=device_id,
+        )
         async with self._lock:
             self._connections[websocket] = connection
         return connection

@@ -240,12 +240,15 @@
         let currentPersonId = null;
         const connectionParams = new URLSearchParams(window.location.search);
         const deviceKey = connectionParams.get('device_key') || sessionStorage.getItem('device_api_key') || '';
+        const configuredDeviceId = connectionParams.get('device_id') || sessionStorage.getItem('device_id') || '';
         const configuredScreenId = connectionParams.get('screen_id') || sessionStorage.getItem('screen_id') || 'SCR-ENTRANCE-01';
         const configuredZoneId = connectionParams.get('zone_id') || sessionStorage.getItem('zone_id') || 'MAIN_ENTRANCE';
         if (deviceKey) sessionStorage.setItem('device_api_key', deviceKey);
+        if (configuredDeviceId) sessionStorage.setItem('device_id', configuredDeviceId);
         sessionStorage.setItem('screen_id', configuredScreenId);
         sessionStorage.setItem('zone_id', configuredZoneId);
         if (connectionParams.has('device_key')) history.replaceState({}, document.title, window.location.pathname);
+        let kioskIdleMilliseconds = 60000;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
 
@@ -258,6 +261,7 @@
         function apiFetch(url, options = {}) {
             const headers = new Headers(options.headers || {});
             if (deviceKey) headers.set('X-Device-Key', deviceKey);
+            if (configuredDeviceId) headers.set('X-Device-ID', configuredDeviceId);
             const csrfToken = getCookie('csrf_token');
             if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
             return fetch(url, {...options, headers});
@@ -297,7 +301,7 @@
                       console.error(e);
                       resetHUDToIdle();
                   });
-            }, 60000); // 60 секунди
+            }, kioskIdleMilliseconds);
         }
 
         function toggleAudio() {
@@ -348,6 +352,7 @@
             socket.onopen = () => {
                 socket.send(JSON.stringify({
                     type: 'register',
+                    device_id: configuredDeviceId || undefined,
                     device_key: deviceKey,
                     screen_id: configuredScreenId,
                     zone_id: configuredZoneId
@@ -380,6 +385,10 @@
                 case 'registered':
                     logActivity('SCREEN', `Регистриран ${data.screen_id} в зона ${data.zone_id}`, 'text-green-400');
                     apiFetch('/api/stats').then(response => response.json()).then(updateUI).catch(console.error);
+                    apiFetch('/api/devices/config').then(response => response.json()).then(config => {
+                        const seconds = Number(config.settings && config.settings.kiosk_idle_seconds);
+                        if (Number.isFinite(seconds) && seconds >= 15) kioskIdleMilliseconds = seconds * 1000;
+                    }).catch(console.error);
                     break;
                 case 'status_change':
                     updateUI(data);
@@ -457,7 +466,14 @@
             const log = document.getElementById('activity-log');
             const time = new Date().toLocaleTimeString();
             const entry = document.createElement('div');
-            entry.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">[${source}]</span> ${message}`;
+            const timeNode = document.createElement('span');
+            timeNode.classList.add('text-slate-600');
+            timeNode.textContent = `[${time}]`;
+            const sourceNode = document.createElement('span');
+            const allowedClasses = new Set(['text-red-500', 'text-cyan-400', 'text-green-400', 'text-yellow-400', 'text-slate-400', 'text-slate-500', 'animate-pulse']);
+            String(colorClass || '').split(/\s+/).filter(value => allowedClasses.has(value)).forEach(value => sourceNode.classList.add(value));
+            sourceNode.textContent = `[${String(source)}]`;
+            entry.append(timeNode, document.createTextNode(' '), sourceNode, document.createTextNode(` ${String(message)}`));
             log.prepend(entry);
         }
 
@@ -474,7 +490,7 @@
                 const recipientSelect = document.getElementById('msg-recipient');
                 
                 // Изчистваме старите опции (запазвайки първата)
-                recipientSelect.innerHTML = '<option value="">Избери получател...</option>';
+                recipientSelect.replaceChildren(new Option('Избери получател...', ''));
                 
                 persons.forEach(p => {
                     const optionText = `${p.full_name} (${p.role}${p.class_name ? ' - ' + p.class_name : ''})`;
