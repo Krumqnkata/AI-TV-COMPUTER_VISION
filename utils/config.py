@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(PROJECT_ROOT / ".env.local")
+load_dotenv(PROJECT_ROOT / ".env")
 
 def _parse_camera_source(value):
     """ Ако стойността е число — USB камера (int). Иначе — IP камера URL (str). """
@@ -11,11 +14,25 @@ def _parse_camera_source(value):
         return value  # RTSP/HTTP URL
 
 class Config:
+    PROJECT_ROOT = PROJECT_ROOT
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL",
+        f"sqlite:///{(PROJECT_ROOT / 'data' / 'school_ai.db').as_posix()}",
+    )
+    SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+    SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
+    SERVER_URL = os.getenv("SERVER_URL", "http://localhost:5000").rstrip("/")
+    DEVICE_API_KEY = os.getenv("DEVICE_API_KEY", "")
+    ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "")
+    COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+
     COOLDOWN_SECONDS = int(os.getenv("COOLDOWN_SECONDS", 30))
     CAMERA_SOURCE = _parse_camera_source(os.getenv("CAMERA_SOURCE", "0"))
-    FACES_DATA_PATH = os.getenv("FACES_DATA_PATH", "data/faces")
+    CAMERA_ID = os.getenv("CAMERA_ID", "CAM-ENTRANCE-01")
+    ZONE_ID = os.getenv("ZONE_ID", "MAIN_ENTRANCE")
+    SCREEN_ID = os.getenv("SCREEN_ID", "SCR-ENTRANCE-01")
+    HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
     JOKES_FILE_PATH = os.getenv("JOKES_FILE_PATH", "jokes.json")
-    NAMES_MAPPING_PATH = os.getenv("NAMES_MAPPING_PATH", "data/names_mapping.json")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL_ID = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
 
@@ -25,11 +42,6 @@ class Config:
     PROCESS_EVERY_N_FRAMES = int(os.getenv("PROCESS_EVERY_N_FRAMES", 10))
     FONT_PATH = os.getenv("FONT_PATH", "ARIAL.TTF")
     
-    # Настройки за прецизност на разпознаването
-    FACE_RECOGNITION_TOLERANCE = float(os.getenv("FACE_RECOGNITION_TOLERANCE", 0.57))
-    FACE_ENCODING_MODEL = os.getenv("FACE_ENCODING_MODEL", "large")
-    PERSISTENCE_THRESHOLD = int(os.getenv("PERSISTENCE_THRESHOLD", 3))
-    GRACE_LIMIT = int(os.getenv("GRACE_LIMIT", 20))
     MAX_HISTORY = int(os.getenv("MAX_HISTORY", 40))
     
     AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", 0.95))

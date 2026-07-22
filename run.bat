@@ -12,13 +12,7 @@ if exist ".venv\Scripts\python.exe" (
 :: If dependency check failed or venv is missing, stop here
 if %ERRORLEVEL% equ 0 goto :dependencies_ok
 
-echo.
-echo ============================================================
-echo [!] Ako vi lipsva C++ Build Tools (neobhodimi za face-recognition/dlib),
-echo     mojete da gi svalite ot:
-echo     https://visualstudio.microsoft.com/visual-cpp-build-tools/
-echo ============================================================
-echo.
+echo [!] Dependency check failed. Run: .venv\Scripts\pip install -r requirements.txt
 pause
 exit /b 1
 

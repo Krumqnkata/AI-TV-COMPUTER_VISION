@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 from sqlalchemy import (
     create_engine, Column, Integer, String, Boolean, DateTime, Date, Time, ForeignKey, Text
 )
@@ -224,6 +224,21 @@ class SystemEvent(Base):
         return f"<SystemEvent(id={self.id}, type='{self.event_type}', timestamp={self.timestamp})>"
 
 
+class DeliveryReceipt(Base):
+    """Acknowledgment state for personal messages sent to a kiosk/screen."""
+    __tablename__ = "delivery_receipts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    delivery_id = Column(String(100), unique=True, nullable=False, index=True)
+    person_id = Column(Integer, ForeignKey("persons.id"), nullable=False)
+    screen_id = Column(String(50), nullable=True)
+    zone_id = Column(String(50), nullable=False)
+    message_ids_json = Column(Text, nullable=False)
+    status = Column(String(20), default="pending", nullable=False)
+    created_at = Column(DateTime, default=now_bg, nullable=False)
+    acknowledged_at = Column(DateTime, nullable=True)
+
+
 # Инициализация и Хеширане
 def hash_token(token: str) -> str:
     """ Генерира SHA-256 хеш за QR токен с цел защита на сигурността """
@@ -231,12 +246,19 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
-def init_db(database_url="sqlite:///data/school_ai.db"):
-    """ Създава таблиците в базата данни, ако не съществуват """
-    db_dir = os.path.dirname(database_url.replace("sqlite:///", ""))
-    if db_dir and not os.path.exists(db_dir):
-        os.makedirs(db_dir, exist_ok=True)
-        
+def init_db(database_url=None):
+    """Създава таблиците в конфигурираната или подадената база данни."""
+    if database_url is None:
+        from utils.config import Config
+
+        database_url = Config.DATABASE_URL
+
+    if database_url.startswith("sqlite:///"):
+        db_path = database_url.removeprefix("sqlite:///")
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+
     engine = create_engine(database_url, echo=False)
     Base.metadata.create_all(engine)
     return engine
@@ -279,9 +301,9 @@ def seed_db(session):
     session.commit()
     
     # 5. Камери (cameras)
-    cam_entrance = Camera(name="Камера главен вход", zone_id="MAIN_ENTRANCE", interaction_point_id=entrance_pt.id, stream_url="0", active=True)
-    cam_lobby = Camera(name="Камера фоайе киоск", zone_id="LOBBY", interaction_point_id=lobby_pt.id, stream_url="1", active=True)
-    cam_teachers = Camera(name="Камера учителска стая", zone_id="TEACHERS_ROOM", interaction_point_id=teachers_pt.id, stream_url="2", active=True)
+    cam_entrance = Camera(name="CAM-ENTRANCE-01", zone_id="MAIN_ENTRANCE", interaction_point_id=entrance_pt.id, stream_url="0", active=True)
+    cam_lobby = Camera(name="CAM-LOBBY-01", zone_id="LOBBY", interaction_point_id=lobby_pt.id, stream_url="1", active=True)
+    cam_teachers = Camera(name="CAM-TEACHERS-01", zone_id="TEACHERS_ROOM", interaction_point_id=teachers_pt.id, stream_url="2", active=True)
     
     session.add_all([cam_entrance, cam_lobby, cam_teachers])
     
@@ -291,7 +313,7 @@ def seed_db(session):
         sender_id=anton.id,
         recipient_id=georgi.id,
         text="Отивам да си купя баничка в междучасието. Чакам те на лавката!",
-        valid_until=datetime(2026, 7, 10, 18, 0, 0),
+        valid_until=now_bg() + timedelta(days=1),
         status="active"
     )
     # Госпожа Мария Димитрова оставя съобщение на Антон
@@ -299,27 +321,28 @@ def seed_db(session):
         sender_id=maria.id,
         recipient_id=anton.id,
         text="Антоне, моля те ела в учителската стая след 3-тия час, за да уточним проекта по информатика.",
-        valid_until=datetime(2026, 7, 10, 15, 0, 0),
+        valid_until=now_bg() + timedelta(days=1),
         status="active"
     )
     session.add_all([msg, msg_teacher])
     
     # 7. Разписание (timetable)
-    # Разписание за ученика Антон за днес (10 Юли 2026г.)
+    demo_date = today_bg()
+    # Разписание за текущия ден, за да работи демонстрацията без ръчна миграция.
     timetable_anton = [
-        Timetable(person_id=anton.id, date=date(2026, 7, 10), period=1, start_time=time(8, 0), end_time=time(8, 45), subject="Математика", class_name="9Б", room="Кабинет 201"),
-        Timetable(person_id=anton.id, date=date(2026, 7, 10), period=2, start_time=time(8, 55), end_time=time(9, 40), subject="Български език", class_name="9Б", room="Кабинет 104"),
-        Timetable(person_id=anton.id, date=date(2026, 7, 10), period=3, start_time=time(9, 50), end_time=time(10, 35), subject="Информатика", class_name="9Б", room="Кабинет 304"),
+        Timetable(person_id=anton.id, date=demo_date, period=1, start_time=time(8, 0), end_time=time(8, 45), subject="Математика", class_name="9Б", room="Кабинет 201"),
+        Timetable(person_id=anton.id, date=demo_date, period=2, start_time=time(8, 55), end_time=time(9, 40), subject="Български език", class_name="9Б", room="Кабинет 104"),
+        Timetable(person_id=anton.id, date=demo_date, period=3, start_time=time(9, 50), end_time=time(10, 35), subject="Информатика", class_name="9Б", room="Кабинет 304"),
         # Има "дупка" (свободен час) между 10:35 и 11:35
-        Timetable(person_id=anton.id, date=date(2026, 7, 10), period=5, start_time=time(11, 35), end_time=time(12, 20), subject="Физика", class_name="9Б", room="Физкултурен салон"),
+        Timetable(person_id=anton.id, date=demo_date, period=5, start_time=time(11, 35), end_time=time(12, 20), subject="Физика", class_name="9Б", room="Физкултурен салон"),
     ]
     
     # Разписание за учителката Мария Димитрова
     timetable_maria = [
-        Timetable(person_id=maria.id, date=date(2026, 7, 10), period=1, start_time=time(8, 0), end_time=time(8, 45), subject="Информатика", class_name="10А", room="Кабинет 304"),
-        Timetable(person_id=maria.id, date=date(2026, 7, 10), period=3, start_time=time(9, 50), end_time=time(10, 35), subject="Информатика", class_name="9Б", room="Кабинет 304"),
+        Timetable(person_id=maria.id, date=demo_date, period=1, start_time=time(8, 0), end_time=time(8, 45), subject="Информатика", class_name="10А", room="Кабинет 304"),
+        Timetable(person_id=maria.id, date=demo_date, period=3, start_time=time(9, 50), end_time=time(10, 35), subject="Информатика", class_name="9Б", room="Кабинет 304"),
         # Мария има свободен час на 4-ти час (10:45 - 11:30)
-        Timetable(person_id=maria.id, date=date(2026, 7, 10), period=5, start_time=time(11, 35), end_time=time(12, 20), subject="Информационни технологии", class_name="8А", room="Кабинет 302"),
+        Timetable(person_id=maria.id, date=demo_date, period=5, start_time=time(11, 35), end_time=time(12, 20), subject="Информационни технологии", class_name="8А", room="Кабинет 302"),
     ]
     
     session.add_all(timetable_anton + timetable_maria)
@@ -328,16 +351,16 @@ def seed_db(session):
     event1 = Event(
         title="Сбирка на клуба по Роботика",
         description="Ще се проведе подготовка за националното състезание по роботика.",
-        start_time=datetime(2026, 7, 10, 14, 30, 0),
-        end_time=datetime(2026, 7, 10, 16, 0, 0),
+        start_time=datetime.combine(demo_date, time(14, 30)),
+        end_time=datetime.combine(demo_date, time(16, 0)),
         target_group="Роботика",
         room="Кабинет 304"
     )
     event2 = Event(
         title="Училищен концерт",
         description="Годишен патронен празник на училището. Всички ученици и учители са поканени във фоайето.",
-        start_time=datetime(2026, 7, 10, 12, 30, 0),
-        end_time=datetime(2026, 7, 10, 14, 0, 0),
+        start_time=datetime.combine(demo_date, time(12, 30)),
+        end_time=datetime.combine(demo_date, time(14, 0)),
         target_group="All",
         room="Фоайе"
     )

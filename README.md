@@ -1,80 +1,87 @@
-# 🛡️ School AI - QR Badge HUD
+# School AI — QR Badge Assistant
 
-### Интелигентен училищен гласов асистент с пасивна QR идентификация
+Локален училищен асистент с QR баджове, централизиран FastAPI backend, SQLAdmin панел и интерактивни екрани по зони. Активната версия не използва лицево разпознаване или биометрия.
 
-**School AI** е училищна информационна система, която използва QR баджове за сигурна и съобразена с поверителността идентификация на ученици, учители, администратори и гости. Системата разпознава QR кода чрез камери, разположени в различни зони (вход, фоайе, библиотека, учителска стая), и предоставя персонализирано гласово и визуално взаимодействие, без да събира или обработва лични биометрични данни като лица.
+## Архитектура
 
----
+```text
+QR client node ── X-Device-Key ──► FastAPI routers ──► services ──► SQLite/PostgreSQL
+                                           │
+                                           └──► WebSocket screen по screen_id/zone_id
+                                                      │
+                                                      └── delivery ACK
+```
 
-## ✨ Основни възможности
+Основни модули:
 
-*   **🚀 Cyber-HUD Интерфейс**: Модерен уеб контролен панел в реално време с гладки анимации, който показва статистика за посещенията и визуализира сканираните баджове.
-*   **📧 Виртуална поща (Virtual Mail)**: Възможност потребителите да оставят съобщения един за друг (например ученик за ученик, или учител за клас). Системата доставя и изговаря гласово съобщението моментално, когато получателят сканира своя QR бадж.
-*   **📅 Училищно разписание**: Интеграция с училищна база данни за автоматично показване на следващия учебен час, кабинет или свободен час на ученика или учителя при идентификация.
-*   **🗣️ Синтез на Българска Реч**: Използва вградена SpeechSynthesis система в браузъра и гласови модели за локален изговор на български език при засичане.
-*   **🌐 Клиент-Сървър Архитектура**:
-    *   **Централен Сървър (Backend)**: FastAPI с SQLite база данни и SQLAlchemy за обработка на сесии, съобщения и събития.
-    *   **Крайни Точки (Client Nodes)**: Олекотени скриптове с OpenCV, които управляват камерите, разчитат бързо QR кодовете и комуникират с API-то на сървъра.
-*   **🔒 Защита на личните данни**: Системата **НЕ** съхранява видео записи, **НЕ** използва лицево разпознаване и хешира QR токените чрез SHA-256 за максимална сигурност.
+- `web/server.py` — composition root на приложението;
+- `web/routers/` — device, administrative и system/WebSocket маршрути;
+- `web/services/` — QR, сесии, intent parsing и delivery acknowledgment;
+- `web/admin_panel.py` — SQLAdmin конфигурация;
+- `web/security.py` — CSRF, device authentication и session права;
+- `engine/db.py` — SQLAlchemy модели;
+- `client_qr_node.py` — локално OpenCV QR разпознаване и комуникация със сървъра.
 
----
+## Инсталация
 
-## 📂 Структура на проекта
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env.local
+```
 
-*   [engine/db.py](file:///D:/Projects/My%20ideas/AI-TV-COMPUTER_VISION/engine/db.py) — Модели на базата данни и seeding скрипт с тестови данни.
-*   [web/server.py](file:///D:/Projects/My%20ideas/AI-TV-COMPUTER_VISION/web/server.py) — FastAPI сървър с новите REST API endpoints за QR баджове, съобщения, разписание и WebSockets.
-*   [client_qr_node.py](file:///D:/Projects/My%20ideas/AI-TV-COMPUTER_VISION/client_qr_node.py) — Клиентски уебкамера скрипт за сканиране на QR кодове и гласово приветствие.
-*   [web/templates/index.html](file:///D:/Projects/My%20ideas/AI-TV-COMPUTER_VISION/web/templates/index.html) — Интерактивен Cyber-HUD екран за визуализация на съобщенията и разписанието.
-*   [tests/test_api.py](file:///D:/Projects/My%20ideas/AI-TV-COMPUTER_VISION/tests/test_api.py) — Автоматизирани тестове на всички API endpoints.
+В `.env.local` задайте уникални стойности за:
 
----
+- `ADMIN_SECRET_KEY` — подписване на административната session cookie;
+- `DEVICE_API_KEY` — споделен ключ само между сървъра, QR nodes и kiosk screens;
+- `CAMERA_ID`, `ZONE_ID` и `SCREEN_ID` — идентичността на конкретната точка.
 
-## 🛠️ Инсталация
+Създаване или актуализиране на администратор:
 
-1.  **Клонирайте хранилището**:
-    ```bash
-    git clone <repository-url>
-    cd AI-TV-COMPUTER_VISION
-    ```
+```powershell
+.venv\Scripts\python.exe tools\create_admin.py --name "Администратор" --password "силна-парола"
+```
 
-2.  **Създайте виртуална среда**:
-    ```bash
-    python -m venv .venv
-    # За Windows:
-    .venv\Scripts\activate
-    ```
+## Стартиране
 
-3.  **Инсталирайте зависимостите**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+```powershell
+.venv\Scripts\python.exe main.py
+```
 
-4.  **Инициализирайте базата данни с примерни данни**:
-    ```bash
-    python engine/db.py
-    ```
+- SQLAdmin: `http://localhost:5000/admin`
+- API документация: `http://localhost:5000/docs`
 
----
+При първо конфигуриране на kiosk screen отворете:
 
-## 🚀 Стартиране
+```text
+http://localhost:5000/?device_key=<DEVICE_API_KEY>&screen_id=SCR-ENTRANCE-01&zone_id=MAIN_ENTRANCE
+```
 
-1.  **Стартирайте Централния Сървър**:
-    ```bash
-    python main.py
-    ```
-    *Отворете `http://localhost:5000` в браузъра, за да заредите HUD контролния панел.*
+Ключът се премахва от адресната лента и остава само в `sessionStorage` за текущия browser tab.
 
-2.  **Стартирайте QR Камера Клиент (Крайния Възел)**:
-    ```bash
-    python client_qr_node.py
-    ```
-    *   Поставете QR код (например: `SCH-8F3A92C1` – тест за Антон) пред камерата, за да симулирате преминаване.
-    *   Натиснете `[SPACE]`, за да продиктувате/напишете AI гласова команда (напр. *"къде е кабинет 304"*).
+Стартиране на QR node:
 
----
+```powershell
+.venv\Scripts\python.exe client_qr_node.py
+```
 
-## 🛡️ Поверителност и сигурност
-Проектът е проектиран с мисъл за пълна законност и защита на личните данни (GDPR съвместимост):
-*   QR кодовете съдържат произволни токени, а не лични имена.
-*   Всички токени се съхраняват в базата като SHA-256 хешове.
-*   Системата не поддържа лицево разпознаване, биометрия или видеозапис на учениците.
+## Сигурност
+
+- Device REST маршрутите изискват `X-Device-Key`.
+- WebSocket връзката трябва първо да изпрати валидна регистрация с `screen_id` и `zone_id`.
+- Browser mutation заявките използват double-submit CSRF cookie + `X-CSRF-Token`.
+- Административните пароли се хешират и проверяват само с Argon2.
+- QR токените се съхраняват като SHA-256 отпечатъци; новите токени използват 128 бита случайност.
+- Персоналните WebSocket събития се изпращат само към съответния екран/зона.
+- Съобщение се маркира като доставено едва след ACK от screen или QR node.
+
+За реално LAN внедряване използвайте HTTPS, `COOKIE_SECURE=true`, отделни ключове по устройство и PostgreSQL/Redis за multi-worker състояние.
+
+## Тестове
+
+```powershell
+.venv\Scripts\python.exe tests\test_api.py
+.venv\Scripts\python.exe -m pip check
+```
+
+Тестовете създават собствена база в системната временна директория. Не отварят, не изтриват и не променят `data/school_ai.db`.

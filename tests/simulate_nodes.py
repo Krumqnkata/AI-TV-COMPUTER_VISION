@@ -3,8 +3,10 @@ import threading
 import time
 import sys
 import random
+from utils.config import Config
 
-SERVER_URL = "http://localhost:5000"
+SERVER_URL = Config.SERVER_URL
+HEADERS = {"X-Device-Key": Config.DEVICE_API_KEY}
 
 def send_qr_scan(camera_id, zone_id, token, confidence=1.0):
     url = f"{SERVER_URL}/api/detect_qr"
@@ -16,7 +18,7 @@ def send_qr_scan(camera_id, zone_id, token, confidence=1.0):
     }
     try:
         start_time = time.time()
-        response = requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, headers=HEADERS, timeout=10)
         elapsed = time.time() - start_time
         if response.status_code == 200:
             res_data = response.json()
@@ -30,15 +32,16 @@ def send_qr_scan(camera_id, zone_id, token, confidence=1.0):
         print(f"[-] [{camera_id}] Request failed: {e}")
     return None
 
-def send_voice_command(person_id, query):
+def send_voice_command(person_id, query, zone_id):
     url = f"{SERVER_URL}/api/voice_command"
     payload = {
         "person_id": person_id,
-        "text_query": query
+        "text_query": query,
+        "zone_id": zone_id
     }
     try:
         start_time = time.time()
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, headers=HEADERS, timeout=30)
         elapsed = time.time() - start_time
         if response.status_code == 200:
             res_data = response.json()
@@ -62,7 +65,7 @@ def run_simulation():
     
     # Първо тестваме дали сървърът работи
     try:
-        test_res = requests.get(f"{SERVER_URL}/api/persons", timeout=3)
+        test_res = requests.get(f"{SERVER_URL}/api/persons", headers=HEADERS, timeout=3)
         if test_res.status_code == 200:
             print("[✓] Server is online and responding.")
         else:
@@ -106,14 +109,14 @@ def run_simulation():
     print("\n[Сценарий 4] Паралелни AI заявки (гласови команди) от тримата потребители...")
     # Трима потребители задават въпроси едновременно, натоварвайки AI мозъка на сървъра
     commands = [
-        (1, "кога днес имам свободен час?"),  # Антон
-        (2, "имам ли нови съобщения?"),       # Георги
-        (3, "какви събития има днес?")        # Мария
+        (1, "кога днес имам свободен час?", "MAIN_ENTRANCE"),
+        (2, "имам ли нови съобщения?", "LOBBY"),
+        (3, "какви събития има днес?", "TEACHERS_ROOM"),
     ]
     
     ai_threads = []
-    for person_id, query in commands:
-        t = threading.Thread(target=send_voice_command, args=(person_id, query))
+    for person_id, query, zone_id in commands:
+        t = threading.Thread(target=send_voice_command, args=(person_id, query, zone_id))
         ai_threads.append(t)
         t.start()
         
@@ -123,7 +126,12 @@ def run_simulation():
     print("\n[Сценарий 5] Затваряне на сесията на входа и ново сканиране...")
     # Ръчно затваряме сесията на входа
     try:
-        res = requests.post(f"{SERVER_URL}/api/sessions/close", json={"zone_id": "MAIN_ENTRANCE"})
+        res = requests.post(
+            f"{SERVER_URL}/api/sessions/close",
+            json={"zone_id": "MAIN_ENTRANCE"},
+            headers=HEADERS,
+            timeout=10,
+        )
         print(f"[+] Session close response: {res.json()}")
     except Exception as e:
         print(f"[-] Session close failed: {e}")

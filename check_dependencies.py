@@ -106,8 +106,6 @@ def check_dependencies():
                     import cv2
                 elif normalized_name == 'pillow':
                     import PIL
-                elif normalized_name == 'face-recognition':
-                    import face_recognition
                 elif normalized_name == 'python-dotenv':
                     import dotenv
                 elif normalized_name == 'google-genai':
@@ -145,27 +143,6 @@ def check_dependencies():
         print("pip install -r requirements.txt")
         print("=" * 60)
         
-        # Специално предупреждение за face-recognition/dlib
-        if 'face-recognition' in missing_packages:
-            print("\n[Внимание] Пакетът 'face-recognition' изисква библиотека на C++ (dlib).")
-            print("За да се инсталира успешно под Windows, следвайте тези стъпки:")
-            print("\n  СТЪПКА А: Инсталиране на C++ компилатор (Visual Studio Build Tools)")
-            print("  1. Свалете инсталатора на Build Tools за Visual Studio от:")
-            print("     https://visualstudio.microsoft.com/visual-cpp-build-tools/")
-            print("  2. Стартирайте сваления файл и изберете работна среда (Workload):")
-            print("     \"Desktop development with C++\" (Разработка на десктоп приложения с C++).")
-            print("  3. Уверете се, че в десния панел са маркирани следните компоненти:")
-            print("     - MSVC v143 - VS 2022 C++ x64/x86 build tools (или подобна версия)")
-            print("     - Windows 10 SDK или Windows 11 SDK")
-            print("  4. Натиснете \"Install\" (Инсталиране) и изчакайте процеса да приключи.")
-            print("\n  СТЪПКА Б: Инсталиране на CMake")
-            print("  Изпълнете командата във виртуалната среда:")
-            print("     pip install cmake")
-            print("\n  СТЪПКА В: Инсталиране на face-recognition")
-            print("  След като завършите горните стъпки, опитайте отново:")
-            print("     pip install face-recognition")
-            print("=" * 60)
-            
         return False
     else:
         print("\n[OK] Всички зависимости са успешно инсталирани! Проектът е готов за стартиране.")

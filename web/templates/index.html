@@ -29,7 +29,7 @@
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #0891b2; border-radius: 10px; }
-        
+
         @keyframes scan {
             0% { top: 0%; }
             50% { top: 100%; }
@@ -189,9 +189,7 @@
                     <div class="space-y-3">
                         <div>
                             <label class="text-[9px] text-slate-500 uppercase tracking-widest block mb-1">Подател</label>
-                            <select id="msg-sender" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-300 focus:border-cyan-500 outline-none">
-                                <option value="">Избери подател...</option>
-                            </select>
+                            <div id="msg-sender" class="w-full bg-black/40 border border-slate-700 p-2 rounded text-xs text-slate-400">Първо сканирайте бадж</div>
                         </div>
                         <div>
                             <label class="text-[9px] text-slate-500 uppercase tracking-widest block mb-1">Получател</label>
@@ -210,7 +208,7 @@
                 </div>
 
                 <!-- User Registration -->
-                <div class="cyber-bg cyber-border p-6 rounded-lg">
+                <div class="cyber-bg cyber-border p-6 rounded-lg hidden" aria-hidden="true">
                     <h3 class="text-cyan-400 text-xs font-bold uppercase mb-4 tracking-widest border-b border-cyan-900/50 pb-2">
                         Регистрирай потребител
                     </h3>
@@ -239,8 +237,31 @@
         let audioEnabled = false;
         let lastSpeechMessage = "";
         let sessionTimeout;
+        let currentPersonId = null;
+        const connectionParams = new URLSearchParams(window.location.search);
+        const deviceKey = connectionParams.get('device_key') || sessionStorage.getItem('device_api_key') || '';
+        const configuredScreenId = connectionParams.get('screen_id') || sessionStorage.getItem('screen_id') || 'SCR-ENTRANCE-01';
+        const configuredZoneId = connectionParams.get('zone_id') || sessionStorage.getItem('zone_id') || 'MAIN_ENTRANCE';
+        if (deviceKey) sessionStorage.setItem('device_api_key', deviceKey);
+        sessionStorage.setItem('screen_id', configuredScreenId);
+        sessionStorage.setItem('zone_id', configuredZoneId);
+        if (connectionParams.has('device_key')) history.replaceState({}, document.title, window.location.pathname);
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        function getCookie(name) {
+            const prefix = `${name}=`;
+            const item = document.cookie.split(';').map(x => x.trim()).find(x => x.startsWith(prefix));
+            return item ? decodeURIComponent(item.substring(prefix.length)) : '';
+        }
+
+        function apiFetch(url, options = {}) {
+            const headers = new Headers(options.headers || {});
+            if (deviceKey) headers.set('X-Device-Key', deviceKey);
+            const csrfToken = getCookie('csrf_token');
+            if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+            return fetch(url, {...options, headers});
+        }
 
         function resetHUDToIdle() {
             document.getElementById('hud-idle').classList.remove('hidden');
@@ -249,6 +270,8 @@
             document.getElementById('hud-role-class').innerText = '-';
             document.getElementById('hud-message').innerText = '"- приветствие -"';
             document.getElementById('hud-class-box').classList.add('hidden');
+            document.getElementById('msg-sender').innerText = 'Първо сканирайте бадж';
+            currentPersonId = null;
             lastSpeechMessage = "";
             logActivity('SYSTEM', 'Сесията приключи (kiosk idle)', 'text-slate-500');
         }
@@ -260,10 +283,10 @@
                 if (!zone || zone === '-') return;
                 
                 // Изпращаме заявка към сървъра да затвори сесията
-                fetch('/api/sessions/close', {
+                apiFetch('/api/sessions/close', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ zone_id: zone })
+                    body: JSON.stringify({ zone_id: zone, screen_id: configuredScreenId })
                 }).then(res => res.json())
                   .then(resData => {
                       if (!resData.success) {
@@ -316,9 +339,19 @@
         }
 
         function connectWebSocket() {
+            if (!deviceKey) {
+                logActivity('SECURITY', 'Липсва device_key за този екран.', 'text-red-500');
+                return;
+            }
             socket = new WebSocket(wsUrl);
 
             socket.onopen = () => {
+                socket.send(JSON.stringify({
+                    type: 'register',
+                    device_key: deviceKey,
+                    screen_id: configuredScreenId,
+                    zone_id: configuredZoneId
+                }));
                 logActivity('WebSocket', 'Връзката със сървъра е отворена', 'text-cyan-400');
             };
 
@@ -344,6 +377,10 @@
                 case 'initial_state':
                     updateUI(data);
                     break;
+                case 'registered':
+                    logActivity('SCREEN', `Регистриран ${data.screen_id} в зона ${data.zone_id}`, 'text-green-400');
+                    apiFetch('/api/stats').then(response => response.json()).then(updateUI).catch(console.error);
+                    break;
                 case 'status_change':
                     updateUI(data);
                     logActivity('CONTROL', `System processing: ${data.is_processing ? 'ACTIVE' : 'PAUSED'}`, 'text-yellow-400');
@@ -358,6 +395,8 @@
                     
                     // Попълваме данните
                     document.getElementById('hud-name').innerText = data.name;
+                    currentPersonId = data.person_id;
+                    document.getElementById('msg-sender').innerText = data.name;
                     document.getElementById('hud-role-class').innerText = `${data.role.toUpperCase()} ${data.class_name ? '- ' + data.class_name : ''}`;
                     document.getElementById('hud-zone').innerText = data.zone_id || 'MAIN';
                     document.getElementById('hud-message').innerText = data.message;
@@ -377,6 +416,13 @@
                     
                     logActivity('QR SCAN', `Засечен: ${data.name} (${data.role})`, 'text-green-400');
                     speakMessage(data.message);
+                    if (data.delivery_id && Array.isArray(data.message_ids) && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: 'ack',
+                            delivery_id: data.delivery_id,
+                            message_ids: data.message_ids
+                        }));
+                    }
                     startSessionTimer(); // Нулиране на таймера за активност
                     break;
                 case 'unknown_badge':
@@ -416,57 +462,57 @@
         }
 
         async function toggleSystem() {
-            try {
-                await fetch('/api/toggle', { method: 'POST' });
-            } catch (e) { console.error(e); }
+            logActivity('SYSTEM', 'Обработката се управлява от отделните QR client nodes.', 'text-slate-400');
         }
 
         async function loadPersons() {
             try {
-                const res = await fetch('/api/persons');
+                const res = await apiFetch('/api/persons');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const persons = await res.json();
                 
-                const senderSelect = document.getElementById('msg-sender');
                 const recipientSelect = document.getElementById('msg-recipient');
                 
                 // Изчистваме старите опции (запазвайки първата)
-                senderSelect.innerHTML = '<option value="">Избери подател...</option>';
                 recipientSelect.innerHTML = '<option value="">Избери получател...</option>';
                 
                 persons.forEach(p => {
                     const optionText = `${p.full_name} (${p.role}${p.class_name ? ' - ' + p.class_name : ''})`;
-                    const opt1 = new Option(optionText, p.id);
                     const opt2 = new Option(optionText, p.id);
-                    senderSelect.add(opt1);
                     recipientSelect.add(opt2);
                 });
             } catch (e) { console.error('Failed to load persons:', e); }
         }
 
         async function submitMessage() {
-            const senderId = document.getElementById('msg-sender').value;
             const recipientId = document.getElementById('msg-recipient').value;
             const text = document.getElementById('msg-text').value;
-            
-            if (!senderId || !recipientId || !text.strip()) {
-                alert('Моля попълнете всички полета за съобщението!');
+
+            if (!currentPersonId) {
+                alert('Първо сканирайте своя бадж.');
                 return;
             }
-            
-            if (senderId === recipientId) {
+            if (!recipientId || !text.trim()) {
+                alert('Моля изберете получател и въведете съобщение!');
+                return;
+            }
+
+            if (String(currentPersonId) === recipientId) {
                 alert('Подателят и получателят не могат да бъдат едно и също лице!');
                 return;
             }
 
             const payload = {
-                sender_id: parseInt(senderId),
+                sender_id: currentPersonId,
                 recipient_id: parseInt(recipientId),
                 text: text,
-                valid_hours: 24
+                valid_hours: 24,
+                zone_id: configuredZoneId,
+                screen_id: configuredScreenId
             };
 
             try {
-                const res = await fetch('/api/messages', {
+                const res = await apiFetch('/api/messages', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -500,7 +546,7 @@
             };
 
             try {
-                const res = await fetch('/api/persons', {
+                const res = await apiFetch('/api/persons', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)

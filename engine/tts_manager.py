@@ -13,14 +13,14 @@ from utils.logger import log_system, log_recognition
 from piper.voice import PiperVoice
 
 class TTSManager:
-    def __init__(self, jokes_file, cooldown, state_manager=None):
+    def __init__(self, jokes_file, cooldown, event_callback=None):
         self.cooldown = cooldown
         self.last_seen = {} # {name: timestamp}
         self.last_greeted = {} # {name: timestamp}
         self.GREETING_COOLDOWN = 3600 # 1 час
         self.jokes = self.load_jokes(jokes_file)
         self.speech_queue = Queue()
-        self.state_manager = state_manager
+        self.event_callback = event_callback
         
         # Инициализиране на LLM мениджъра (Ollama + Gemini fallback)
         self.llm_manager = LLMManager()
@@ -286,8 +286,8 @@ class TTSManager:
             pygame.mixer.music.play()
             
             # Известяване на уеб панела
-            if self.state_manager:
-                self.state_manager.on_speech_ready(os.path.basename(filename))
+            if self.event_callback:
+                self.event_callback(os.path.basename(filename))
 
             # Изчакваме края на шегата, без да блокираме камерата
             while pygame.mixer.music.get_busy():
