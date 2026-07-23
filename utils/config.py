@@ -16,7 +16,11 @@ def _project_path(value: str, default: str) -> Path:
 
 
 def _database_url(value: str) -> str:
-    """Anchor relative SQLite files to the project; leave server URLs intact."""
+    """Normalize supported database URLs and anchor relative SQLite files."""
+    if value.startswith("postgres://"):
+        return f"postgresql+psycopg://{value.removeprefix('postgres://')}"
+    if value.startswith("postgresql://"):
+        return f"postgresql+psycopg://{value.removeprefix('postgresql://')}"
     prefix = "sqlite:///"
     if not value.startswith(prefix):
         return value
@@ -44,6 +48,13 @@ class Config:
             f"sqlite:///{(PROJECT_ROOT / 'data' / 'school_ai.db').as_posix()}",
         )
     )
+    DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
+    DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+    DB_POOL_TIMEOUT_SECONDS = int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30"))
+    DB_POOL_RECYCLE_SECONDS = int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800"))
+    POSTGRES_BIN_DIR = _project_path(os.getenv("POSTGRES_BIN_DIR", ""), ".")
+    POSTGRES_BIN_DIR_CONFIGURED = bool(os.getenv("POSTGRES_BIN_DIR", "").strip())
+    BACKUP_COMMAND_TIMEOUT_SECONDS = int(os.getenv("BACKUP_COMMAND_TIMEOUT_SECONDS", "300"))
     SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
     SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
     SERVER_URL = os.getenv("SERVER_URL", "http://localhost:5000").rstrip("/")

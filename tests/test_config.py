@@ -11,8 +11,20 @@ class TestConfigPaths(unittest.TestCase):
         self.assertEqual(_database_url("sqlite:///data/example.db"), f"sqlite:///{expected}")
 
     def test_non_sqlite_url_is_unchanged(self):
-        url = "postgresql://db.example/school"
+        url = "mysql://db.example/school"
         self.assertEqual(_database_url(url), url)
+
+    def test_postgresql_url_uses_psycopg_driver(self):
+        self.assertEqual(
+            _database_url("postgresql://user:pass@localhost/school"),
+            "postgresql+psycopg://user:pass@localhost/school",
+        )
+
+    def test_legacy_postgres_url_uses_psycopg_driver(self):
+        self.assertEqual(
+            _database_url("postgres://user:pass@localhost/school"),
+            "postgresql+psycopg://user:pass@localhost/school",
+        )
 
     def test_memory_sqlite_url_is_unchanged(self):
         self.assertEqual(_database_url("sqlite:///:memory:"), "sqlite:///:memory:")

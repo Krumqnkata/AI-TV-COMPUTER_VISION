@@ -23,8 +23,9 @@ staff browser ◄──── RBAC + CSRF ───── SQLAdmin control centr
 ## Изисквания
 
 - Python 3.11 или 3.12;
-- Windows за предоставените `.bat` launchers; server кодът е platform-independent;
-- SQLite за единична инсталация.
+- Windows за предоставените `.bat` launchers;
+- PostgreSQL 18 с Command Line Tools за runtime базата и backups;
+- SQLite остава само за бързите изолирани unit/integration fixtures.
 
 Зависимостите са разделени по роля:
 
@@ -51,7 +52,7 @@ python -m venv .venv
 Copy-Item .env.example .env.local
 ```
 
-2. Генерирайте различни силни стойности за `ADMIN_SECRET_KEY` и `SETTINGS_MASTER_KEY`. Не ги commit-вайте и не използвайте примерните placeholders. Останалите настройки в `.env.example` са коментирани — активирайте само тези, които наистина променят default поведението.
+2. Създайте локалните `school_ai_dev` и `school_ai_test` PostgreSQL бази според `docs/WINDOWS_POSTGRESQL.md`. Генерирайте различни силни стойности за `ADMIN_SECRET_KEY`, `SETTINGS_MASTER_KEY` и database паролата. Не commit-вайте `.env.local` и не използвайте примерните placeholders.
 
 3. Създайте или обновете schema-та само чрез Alembic:
 
@@ -115,7 +116,7 @@ Simulator-ът използва индивидуални credentials, изпра
 - служебни профили, четири роли, permissions и audit trail;
 - типизирани runtime настройки и AES-GCM encrypted AI secrets;
 - device enrollment, heartbeat, config, safe commands и ACK;
-- CSV/XLSX imports, retention cleanup и проверими SQLite backups.
+- CSV/XLSX imports, retention cleanup и проверими PostgreSQL backups чрез `pg_dump`/`pg_restore`.
 
 Deployment настройки като database URL, TLS, session/master keys и database restore не се променят от панела.
 
@@ -138,10 +139,11 @@ Deployment настройки като database URL, TLS, session/master keys и
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-Тестовете създават временна SQLite база чрез целия Alembic chain. Те не четат, изтриват или променят runtime базата.
+Основният suite създава временна SQLite база и не докосва runtime PostgreSQL базата. Допълнителният live PostgreSQL migration test използва само `POSTGRES_TEST_DATABASE_URL` и отказва база, чието име не завършва на `_test`. Подробностите са в `docs/WINDOWS_POSTGRESQL.md`.
 
 Допълнителни документи:
 
 - `ADMIN_GUIDE.md` — ежедневна работа в панела;
+- `docs/WINDOWS_POSTGRESQL.md` — локална PostgreSQL инсталация, тестове и restore;
 - `TASK.md` — активен roadmap;
 - `docs/archive/` — неактуални исторически спецификации.

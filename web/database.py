@@ -4,6 +4,7 @@ from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from engine import admin_models as _admin_models  # noqa: F401
@@ -12,12 +13,23 @@ from utils.config import Config
 
 
 DATABASE_URL = Config.DATABASE_URL
-_sqlite = DATABASE_URL.startswith("sqlite")
-db_engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if _sqlite else {},
-    pool_pre_ping=not _sqlite,
-)
+_database_backend = make_url(DATABASE_URL).get_backend_name()
+_sqlite = _database_backend == "sqlite"
+_postgresql = _database_backend == "postgresql"
+
+_engine_options = {
+    "connect_args": {"check_same_thread": False} if _sqlite else {},
+    "pool_pre_ping": not _sqlite,
+}
+if _postgresql:
+    _engine_options.update({
+        "pool_size": Config.DB_POOL_SIZE,
+        "max_overflow": Config.DB_MAX_OVERFLOW,
+        "pool_timeout": Config.DB_POOL_TIMEOUT_SECONDS,
+        "pool_recycle": Config.DB_POOL_RECYCLE_SECONDS,
+    })
+
+db_engine = create_engine(DATABASE_URL, **_engine_options)
 
 
 if _sqlite:
