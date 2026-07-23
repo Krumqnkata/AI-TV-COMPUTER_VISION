@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_USER: school_ai_ci
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: school_ai_ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U school_ai_ci -d school_ai_ci_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://school_ai_ci:ci-only-password@localhost:5432/school_ai_ci_test
+      POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://school_ai_ci:ci-only-password@localhost:5432/school_ai_ci_test
+      ADMIN_SECRET_KEY: ci-admin-session-secret-that-is-not-used-outside-ci
+      SETTINGS_MASTER_KEY: ci-settings-master-key-that-is-not-used-outside-ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Validate installed dependencies
+        run: python -m pip check
+
+      - name: Compile Python sources
+        run: python -m compileall -q main.py migrations tests tools utils web
+
+      - name: Run unit, integration, and live PostgreSQL migration tests
+        run: python -m unittest discover -s tests -v
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-ai.txt
+            requirements-dev.txt
+            requirements-node.txt
+
+      - name: Install audit tool
+        run: python -m pip install --disable-pip-version-check pip-audit==2.10.1
+
+      - name: Audit server dependencies
+        run: python -m pip_audit -r requirements.txt
+
+      - name: Audit development dependencies
+        run: python -m pip_audit -r requirements-dev.txt
+
+      - name: Audit optional AI dependencies
+        run: python -m pip_audit -r requirements-ai.txt
+
+      - name: Audit QR node dependencies
+        # gTTS 2.5.4 requires Click < 8.2. The ignored Click issue is limited
+        # to its unused pager/editor CLI path; see docs/SECURITY.md.
+        run: python -m pip_audit -r requirements-node.txt --ignore-vuln PYSEC-2026-2132

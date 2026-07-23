@@ -1,5 +1,5 @@
 # Optional Gemini/Ollama providers on top of the core server
 -r requirements.txt
 google-genai==2.7.0
-protobuf==5.29.5
+protobuf==5.29.6
 ollama==0.6.2

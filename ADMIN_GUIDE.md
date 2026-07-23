@@ -10,7 +10,7 @@
 4. Създайте първия профил с `.venv\Scripts\python.exe tools\create_admin.py --name "Администратор" --username admin`; паролата се въвежда скрито.
 5. Стартирайте с `run.bat` и проверете началното табло.
 
-Сървърът никога не създава или променя schema автоматично. Runtime PostgreSQL базата и backup архивите не се пазят в Git. Windows настройката е описана в `docs/WINDOWS_POSTGRESQL.md`.
+Сървърът никога не създава или променя schema автоматично. Runtime PostgreSQL базата и backup архивите не се пазят в Git. Development настройката е описана в `docs/WINDOWS_POSTGRESQL.md`, а училищният сървър — в `docs/LINUX_DEPLOYMENT.md`.
 
 ## Най-чести действия
 

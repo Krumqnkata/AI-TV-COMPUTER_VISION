@@ -1,0 +1,39 @@
+[Unit]
+Description=School AI FastAPI backend
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=school-ai
+Group=school-ai
+WorkingDirectory=/opt/school-ai
+EnvironmentFile=/opt/school-ai/.env.local
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/school-ai/.venv/bin/python /opt/school-ai/main.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+
+StateDirectory=school-ai
+StateDirectoryMode=0750
+LogsDirectory=school-ai
+LogsDirectoryMode=0750
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/school-ai /var/log/school-ai
+
+[Install]
+WantedBy=multi-user.target
