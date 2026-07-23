@@ -5,7 +5,8 @@
 ## Текущ обхват
 
 - QR баджове за идентификация без биометрия и лицево разпознаване.
-- FastAPI backend, SQLAdmin контролен център и PostgreSQL runtime база под Windows.
+- FastAPI backend, SQLAdmin контролен център и PostgreSQL runtime база с
+  Windows development и Linux production deployment.
 - Индивидуално сдвоени camera/kiosk/screen устройства с ограничени команди и acknowledgment.
 - Rule-based асистент по подразбиране; Gemini и Ollama са optional providers с минимален read-only контекст.
 
@@ -15,14 +16,23 @@
 - Управление на хора, баджове, графици, съдържание, настройки, устройства, imports, retention и backups.
 - Alembic-only schema bootstrap с legacy baseline и изолирани test fixtures.
 - Разделени server, QR-node, AI и development dependency профили.
+- GitHub Actions за Python 3.11/3.12, live PostgreSQL migration, dependency
+  audit и CodeQL.
+- Linux deployment без Docker със systemd, Nginx/TLS шаблон и log rotation.
 
 ## Следващи приоритети
 
-1. **CI и release проверки** — GitHub Actions за migration tests, unit/integration suite, dependency profiles и security scans.
-2. **Физически pilot** — поне две камери и два екрана в различни зони; измерване на latency, duplicate filtering и ACK retry.
-3. **Production deployment** — Redis-backed connection/delivery state, TLS termination и проверена PostgreSQL restore процедура при спрян сървър.
-4. **Optional STT** — отделен Whisper/audio endpoint с consent, rate limits, retention и изрично включване от администратора.
-5. **Наблюдаемост** — structured logs, health metrics и предупреждения за offline устройства и забавени ACK команди.
+1. **Физически pilot** — поне две камери и два екрана в различни зони;
+   измерване на latency, duplicate filtering и ACK retry.
+2. **Училищен production rollout** — инсталация на подготвения Linux
+   deployment, реален TLS сертификат, least-privilege PostgreSQL role и
+   restore rehearsal при спрян сървър.
+3. **Надеждност при мащабиране** — Redis-backed connection/delivery state
+   преди повече от един Uvicorn worker.
+4. **Наблюдаемост** — structured logs, health metrics и предупреждения за
+   offline устройства и забавени ACK команди.
+5. **Optional STT** — отделен Whisper/audio endpoint с consent, rate limits,
+   retention и изрично включване от администратора.
 
 ## Непроменими граници
 

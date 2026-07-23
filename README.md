@@ -18,12 +18,13 @@ staff browser ◄──── RBAC + CSRF ───── SQLAdmin control centr
 - `engine/` съдържа SQLAlchemy моделите и security primitives;
 - `migrations/` е единственият източник за database schema;
 - `client_qr_node.py` е клиентът за камера, QR и локален говор;
-- `tools/` съдържа admin bootstrap и device simulator.
+- `tools/` съдържа admin bootstrap, device simulator и защитена PostgreSQL
+  restore проверка.
 
 ## Изисквания
 
 - Python 3.11 или 3.12;
-- Windows за предоставените `.bat` launchers;
+- Windows за предоставените `.bat` launchers или Linux със `systemd`;
 - PostgreSQL 18 с Command Line Tools за runtime базата и backups;
 - SQLite остава само за бързите изолирани unit/integration fixtures.
 
@@ -83,6 +84,10 @@ Copy-Item .env.example .env.local
 
 Runtime базата, imports и backups не се проследяват от Git. Преди migration на съществуваща инсталация винаги създавайте проверено резервно копие.
 
+Linux production deployment без Docker е описан в
+`docs/LINUX_DEPLOYMENT.md`. Предоставени са `run.sh`, hardened `systemd`
+service, Nginx WebSocket/TLS шаблон и logrotate правило.
+
 ## Устройства
 
 1. В админ панела отворете **Устройства → Управление на устройства**.
@@ -137,13 +142,21 @@ Deployment настройки като database URL, TLS, session/master keys и
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 .\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pip_audit -r requirements.txt
 ```
 
 Основният suite създава временна SQLite база и не докосва runtime PostgreSQL базата. Допълнителният live PostgreSQL migration test използва само `POSTGRES_TEST_DATABASE_URL` и отказва база, чието име не завършва на `_test`. Подробностите са в `docs/WINDOWS_POSTGRESQL.md`.
+
+GitHub Actions изпълнява тестовете на Python 3.11/3.12 с PostgreSQL 18,
+dependency audit и CodeQL. Настройката и required checks са описани в
+`docs/CI.md`.
 
 Допълнителни документи:
 
 - `ADMIN_GUIDE.md` — ежедневна работа в панела;
 - `docs/WINDOWS_POSTGRESQL.md` — локална PostgreSQL инсталация, тестове и restore;
+- `docs/LINUX_DEPLOYMENT.md` — production инсталация без Docker;
+- `docs/CI.md` — GitHub Actions и branch protection checks;
+- `docs/SECURITY.md` — dependency audit правила и временни изключения;
 - `TASK.md` — активен roadmap;
 - `docs/archive/` — неактуални исторически спецификации.

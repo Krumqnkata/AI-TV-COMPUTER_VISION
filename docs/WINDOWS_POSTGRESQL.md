@@ -97,3 +97,18 @@ Remove-Item Env:POSTGRES_TEST_DATABASE_URL
 ```
 
 Преди restore винаги създайте отделно актуално копие и проверете целевата база.
+
+За безопасен пълен restore rehearsal използвайте само отделната
+`school_ai_test` база. Следната команда изтрива нейния `public` schema,
+възстановява архива, проверява всички таблици и Alembic revision-а, след което
+я почиства отново:
+
+```powershell
+$env:POSTGRES_TEST_DATABASE_URL='postgresql+psycopg://school_ai_app:URL_ENCODED_PASSWORD@localhost:5432/school_ai_test'
+.\.venv\Scripts\python.exe tools\verify_postgresql_restore.py `
+  data\backups\school-ai-backup.dump `
+  --confirm-destroy-test-database
+Remove-Item Env:POSTGRES_TEST_DATABASE_URL
+```
+
+Tool-ът отказва non-PostgreSQL база, име без `_test` и runtime базата.
