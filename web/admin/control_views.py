@@ -40,7 +40,12 @@ from web.services.admin_control import (
     settings_catalog,
     update_settings,
 )
-from web.services.backups import create_sqlite_backup, downloadable_backup_path, verify_backup
+from web.services.backups import (
+    backup_media_type,
+    create_database_backup,
+    downloadable_backup_path,
+    verify_backup,
+)
 from web.services.device_control import (
     SAFE_COMMANDS,
     create_enrollment_token,
@@ -549,7 +554,7 @@ class BackupView(PermissionedBaseView):
         with SessionLocal() as db:
             return await self.templates.TemplateResponse(request, "admin/backups.html", {
                 "title": "Резервни копия",
-                "subtitle": "Транзакционни SQLite архиви с SHA-256 и integrity check",
+                "subtitle": "Проверими PostgreSQL/SQLite архиви със SHA-256",
                 "records": db.query(BackupRecord).order_by(BackupRecord.created_at.desc()).all(),
                 "can_manage": session_has_permission(request, "backups.manage"),
                 "ok": request.query_params.get("ok"),
@@ -562,7 +567,7 @@ class BackupView(PermissionedBaseView):
         try:
             with SessionLocal() as db:
                 actor = current_staff(db, request)
-                record = create_sqlite_backup(db, actor, ip_address=request_ip(request))
+                record = create_database_backup(db, actor, ip_address=request_ip(request))
         except RuntimeError as exc:
             return _redirect("/admin/backups", error=str(exc))
         return _redirect("/admin/backups", ok=f"Създадено и проверено копие: {record.file_name}")
@@ -588,7 +593,7 @@ class BackupView(PermissionedBaseView):
                 path = downloadable_backup_path(record)
             except FileNotFoundError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-            return FileResponse(path, filename=record.file_name, media_type="application/vnd.sqlite3")
+            return FileResponse(path, filename=record.file_name, media_type=backup_media_type(record))
 
 
 class RevealView(PermissionedBaseView):

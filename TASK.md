@@ -5,7 +5,7 @@
 ## Текущ обхват
 
 - QR баджове за идентификация без биометрия и лицево разпознаване.
-- FastAPI backend, SQLAdmin контролен център и SQLite за единична инсталация.
+- FastAPI backend, SQLAdmin контролен център и PostgreSQL runtime база под Windows.
 - Индивидуално сдвоени camera/kiosk/screen устройства с ограничени команди и acknowledgment.
 - Rule-based асистент по подразбиране; Gemini и Ollama са optional providers с минимален read-only контекст.
 
@@ -20,7 +20,7 @@
 
 1. **CI и release проверки** — GitHub Actions за migration tests, unit/integration suite, dependency profiles и security scans.
 2. **Физически pilot** — поне две камери и два екрана в различни зони; измерване на latency, duplicate filtering и ACK retry.
-3. **Production deployment** — PostgreSQL, Redis-backed connection/delivery state, TLS termination и документирана restore процедура при спрян сървър.
+3. **Production deployment** — Redis-backed connection/delivery state, TLS termination и проверена PostgreSQL restore процедура при спрян сървър.
 4. **Optional STT** — отделен Whisper/audio endpoint с consent, rate limits, retention и изрично включване от администратора.
 5. **Наблюдаемост** — structured logs, health metrics и предупреждения за offline устройства и забавени ACK команди.
 

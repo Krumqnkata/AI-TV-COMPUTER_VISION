@@ -43,9 +43,11 @@ class TestDependencyProfiles(unittest.TestCase):
         self.assertNotIn("httpx2", combined)
 
     def test_profiles_contain_their_runtime_packages(self):
+        core = {line.split("==", 1)[0] for line in package_lines("requirements.txt")}
         node = {line.split("==", 1)[0] for line in package_lines("requirements-node.txt")}
         ai = {line.split("==", 1)[0] for line in package_lines("requirements-ai.txt")}
         dev = {line.split("==", 1)[0] for line in package_lines("requirements-dev.txt")}
+        self.assertIn("psycopg[binary]", core)
         self.assertTrue({"opencv-python", "pygame", "gTTS", "requests"}.issubset(node))
         self.assertTrue({"google-genai", "protobuf", "ollama"}.issubset(ai))
         self.assertTrue({"httpx", "requests"}.issubset(dev))

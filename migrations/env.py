@@ -18,6 +18,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+database_backend = make_url(Config.DATABASE_URL).get_backend_name()
 
 
 def ensure_sqlite_parent() -> None:
@@ -38,7 +39,8 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        render_as_batch=True,
+        compare_server_default=True,
+        render_as_batch=database_backend == "sqlite",
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -56,6 +58,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            compare_server_default=True,
             render_as_batch=connection.dialect.name == "sqlite",
         )
         with context.begin_transaction():
