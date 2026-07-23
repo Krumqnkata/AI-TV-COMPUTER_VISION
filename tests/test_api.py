@@ -33,7 +33,7 @@ alembic_command.upgrade(_test_migration_config, "head")
 
 
 from engine.auth import get_password_hash  # noqa: E402
-from engine.admin_models import DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
+from engine.admin_models import BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
 from engine.db import Badge, Base, DeliveryReceipt, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
 from tests.fixtures import seed_test_data  # noqa: E402
 from web.database import SessionLocal, assert_schema_current, db_engine  # noqa: E402
@@ -333,6 +333,25 @@ class TestSchoolAIAPI(unittest.TestCase):
             self.assertEqual(response.status_code, 200, f"{path}: {response.text[:300]}")
             self.assertNotIn("password_hash", response.text, path)
             self.assertNotIn("ciphertext", response.text, path)
+        self.client.cookies.delete("session")
+
+    def test_admin_backup_action_creates_verified_archive(self):
+        self._login_admin()
+        before = self.db.query(BackupRecord).count()
+
+        response = self.client.post(
+            "/admin/backups/generate",
+            headers={"Origin": "http://testserver"},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303, response.text[:300])
+        self.assertTrue(response.headers["location"].startswith("/admin/backups?ok="))
+        self.db.expire_all()
+        self.assertEqual(self.db.query(BackupRecord).count(), before + 1)
+        record = self.db.query(BackupRecord).order_by(BackupRecord.id.desc()).first()
+        self.assertEqual(record.status, "verified")
+        self.assertTrue(Path(record.storage_path).is_file())
         self.client.cookies.delete("session")
 
     def test_staff_login_lockout(self):

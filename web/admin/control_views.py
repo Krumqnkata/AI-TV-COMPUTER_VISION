@@ -561,7 +561,7 @@ class BackupView(PermissionedBaseView):
                 "error": request.query_params.get("error"),
             })
 
-    @expose("/backups/create", methods=["POST"])
+    @expose("/backups/generate", methods=["POST"])
     async def create_backup(self, request: Request):
         self.guard(request, "backups.manage")
         try:
