@@ -44,6 +44,9 @@ app.add_middleware(
 )
 install_security_middleware(app)
 
+static_dir = Config.PROJECT_ROOT / "web" / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
 admin_static = Config.PROJECT_ROOT / "web" / "static" / "admin"
 app.mount("/static/admin", StaticFiles(directory=str(admin_static)), name="admin-static")
 

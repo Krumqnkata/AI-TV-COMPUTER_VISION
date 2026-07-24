@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse
 
 from engine.db import SystemEvent, today_bg
 from utils.config import Config
@@ -17,6 +18,10 @@ from web.services.delivery import acknowledge_delivery
 router = APIRouter(tags=["system"])
 templates = Jinja2Templates(directory=str(Config.PROJECT_ROOT / "web" / "templates"))
 
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse("web/static/favicon.ico")
 
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request):
