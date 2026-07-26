@@ -425,8 +425,11 @@ class DeviceNode(Base):
     config_json = Column(Text, default="{}", nullable=False)
     config_version = Column(Integer, default=1, nullable=False)
     capabilities_json = Column(Text, default="[]", nullable=False)
+    diagnostics_json = Column(Text, default="{}", nullable=False)
     software_version = Column(String(50), nullable=True)
     last_seen_at = Column(DateTime, nullable=True, index=True)
+    last_websocket_at = Column(DateTime, nullable=True)
+    last_websocket_disconnected_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=now_bg, nullable=False)
 
     camera = relationship("Camera")
@@ -463,6 +466,11 @@ class DeviceEnrollmentToken(Base):
     expected_identifier = Column(String(100), nullable=True)
     zone_id = Column(String(50), nullable=True)
     screen_id = Column(String(50), nullable=True)
+    interaction_point_id = Column(
+        Integer,
+        ForeignKey("interaction_points.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     initial_config_json = Column(Text, default="{}", nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
@@ -472,6 +480,7 @@ class DeviceEnrollmentToken(Base):
 
     created_by = relationship("StaffAccount")
     used_by_device = relationship("DeviceNode")
+    interaction_point = relationship("InteractionPoint")
 
 
 class DeviceCommand(Base):

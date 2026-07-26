@@ -1,0 +1,202 @@
+# Киоск и информационен екран PWA
+
+## Какво е реализирано
+
+Клиентът е responsive web приложение с progressive enhancement, а не
+Android-only package. Същият код работи на таблет, Windows компютър и в
+съвременен браузър:
+
+| Адрес | Предназначение | Камера | Лична информация |
+|---|---|---:|---:|
+| `/pair` | Еднократно сдвояване на профил | Да, за enrollment QR | Не |
+| `/kiosk` | QR бадж, справки, асистент и съобщения | Да | Да, само в активна сесия |
+| `/screen` public | Обяви, събития и замествания | Не | Не |
+| `/screen` paired | Публична ротация + резултат от отделен киоск | Не | Да, таргетирано |
+
+`/kiosk` и `/screen` имат различни manifest `id` и `start_url`. Те могат да се
+инсталират като две отделни приложения върху един Windows PC. Когато браузърът
+не предлага PWA инсталация, страниците продължават да работят като нормален
+web клиент.
+
+## Задължително преди реален таблет
+
+Камерата, Service Worker и PWA инсталацията изискват trusted HTTPS origin.
+`http://localhost` и `http://127.0.0.1` са допустими за development, но
+`http://192.168.x.x:5000` не е production решение.
+
+За училищната LAN:
+
+1. задайте вътрешно DNS име, например `school-ai.school.local`;
+2. поставете Nginx пред FastAPI;
+3. инсталирайте TLS сертификат, доверен от таблетите и Windows устройствата;
+4. отваряйте само `https://school-ai.school.local`;
+5. запазете един Uvicorn worker за първия pilot.
+
+Nginx/TLS шаблонът е в `deploy/linux/nginx-school-ai.conf`, а пълната
+server процедура е в `docs/LINUX_DEPLOYMENT.md`.
+
+## Подготовка от админ панела
+
+### 1. Интерактивна точка
+
+В **Устройства → Интерактивни точки** създайте:
+
+- разбираемо име, например `Главен вход`;
+- стабилен `zone_id`, например `MAIN_ENTRANCE`;
+- уникален `screen_id`, например `SCR-ENTRANCE-01`;
+- подходящ тип и отметка „Активно“.
+
+Киоск и отделен paired screen трябва да използват една и съща точка или поне
+еднакви `zone_id`/`screen_id`, за да получават една и съща таргетирана доставка.
+
+### 2. Еднократен QR код
+
+В **Устройства → Управление на устройства**:
+
+1. изберете **Интерактивен киоск** или **Информационен екран**;
+2. изберете физическата точка;
+3. за screen изберете:
+   - **Само публична информация**, или
+   - **Публична информация + личен резултат от киоск**;
+4. задайте аудитория, ротация и видове публично съдържание;
+5. създайте QR кода.
+
+Кодът изтича и се използва само веднъж.
+
+### 3. Сдвояване на устройството
+
+На таблета или PC:
+
+1. отворете `/pair?profile=kiosk` или `/pair?profile=screen`;
+2. разрешете камерата и сканирайте QR кода, или го въведете ръчно;
+3. след успешното сдвояване приложението се отваря автоматично;
+4. инсталирайте го от бутона на страницата или от менюто на браузъра;
+5. при production kiosk заключете устройството чрез Android managed kiosk,
+   MDM, screen pinning или подходящ Windows kiosk режим.
+
+Pairing QR съдържа само краткотрайния enrollment token. Постоянният device key
+се връща директно от сървъра и се пази в отделна `HttpOnly`,
+`SameSite=Strict` cookie за съответния профил. Secret не е достъпен за
+JavaScript и не се записва в `localStorage`, IndexedDB или URL.
+
+## QR сканиране
+
+Клиентът използва:
+
+1. native `BarcodeDetector`, когато браузърът поддържа QR;
+2. локално vendor-нат `@zxing/browser` 0.2.1 fallback;
+3. USB scanner/ръчно поле като operational fallback.
+
+Няма CDN заявка и camera video не напуска устройството. Към FastAPI се изпраща
+само прочетеният badge token, timestamp и confidence.
+
+За наличната 2 MP / 720p selfie камера започнете с QR 40–45 mm, чист бял фон и
+разстояние около 25–40 cm. Кодът трябва да е целият в рамката, без отблясък.
+Преди production са задължителни 100 физически сканирания по матрицата в
+`TASK.md`; автоматичният browser тест не заменя този хардуерен pilot.
+
+## Поведение на киоска
+
+- при idle камерата търси само QR кодове;
+- при успешен бадж камерата се спира и се отваря лична сесия;
+- личните DOM полета се изчистват при приключване, tab hiding, pause и idle
+  timeout;
+- лични имена и съобщения не се пазят в browser storage или Service Worker
+  cache;
+- TTS се стартира само от видимия бутон **Прочети на глас**;
+- няма Speech-to-Text в задължителния v1;
+- получателите и изпращането на съобщение са достъпни само след активен бадж.
+
+## Поведение на екрана
+
+Public режимът показва само:
+
+- публикувани и валидни обяви за зададената аудитория;
+- предстоящи събития;
+- днешни замествания.
+
+Public feed може да остане кеширан за offline ротация, защото не съдържа
+персонална доставка. Paired режимът показва личния WebSocket payload временно,
+изпраща delivery ACK и се връща към публичната ротация след края на сесията.
+Public screen връзките се филтрират и изобщо не получават personal payload.
+
+## Връзка, ACK и команди
+
+- WebSocket scope-ът идва от server-side device record, не от browser payload;
+- reconnect използва exponential backoff, jitter и ping/pong liveness;
+- delivery ACK се записва като минимален IndexedDB запис само с delivery ID и
+  message IDs, после се повтаря след връщане на мрежата;
+- duplicate `event_id` не се показва два пъти;
+- heartbeat е на 30 секунди, command polling — на 10 секунди;
+- нов `config_version` от heartbeat автоматично презарежда профила до 30
+  секунди след запис от админ панела;
+- `refresh_config` презарежда клиента, така че новите zone/screen/mode настройки
+  да важат и за WebSocket регистрацията;
+- `disable`/`enable` остава локално устойчиво през restart и се отчита чрез
+  heartbeat;
+- произволни shell/OS команди не се поддържат.
+
+Heartbeat изпраща и малък технически diagnostics snapshot за админ страницата:
+име/версия на браузъра, обща платформа, secure/PWA режим, налични Camera,
+BarcodeDetector, Service Worker, IndexedDB, WebSocket и TTS API, camera
+permission/status и viewport. Не се изпращат video кадри, пълен user-agent,
+име на локалната камера или персонални данни. Успешното стартиране или отказът
+на камерата обновява диагностиката веднага, а останалото — със следващия
+heartbeat.
+
+## Browser поддръжка
+
+- Chrome/Edge desktop и Android: web режим + PWA инсталация;
+- Firefox/WebKit: автоматични smoke тестове и нормален web fallback;
+- Microsoft Edge на Windows: отделен CI и локално проверен smoke сценарий;
+- native камерата е progressive enhancement; ZXing поема QR при липсващ
+  `BarcodeDetector`.
+
+Инсталационният UI зависи от браузъра. Официално описание:
+[MDN — Making PWAs installable](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
+
+## Автоматични тестове
+
+Backend и contract suite:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Пълен Chromium acceptance:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m playwright install chromium
+$env:RUN_BROWSER_E2E='1'
+$env:PLAYWRIGHT_BROWSER='chromium'
+$env:PWA_E2E_MODE='full'
+.\.venv\Scripts\python.exe -m unittest tests.test_pwa_browser -v
+```
+
+Тестът създава временна SQLite база и отделен localhost server. Покрива:
+
+- pairing и `HttpOnly` profile cookie;
+- public screen feed;
+- QR сесия през реалния DOM;
+- public screen isolation;
+- delivery ACK;
+- липса на personal данни в local storage;
+- idle cleanup;
+- offline/online WebSocket reconnect;
+- Service Worker readiness.
+
+## Troubleshooting
+
+- **Камерата липсва:** проверете HTTPS, browser permission и дали камерата не
+  се използва от друго приложение.
+- **След отваряне се връща към `/pair`:** credential е липсващ, отнет или
+  устройството е неактивно. Създайте нов еднократен код.
+- **Public screen не показва бадж:** това е очаквано. Променете режима на
+  **Сдвоен**, запазете и изпратете `Опресни конфигурацията`.
+- **QR е бавен:** увеличете кода, намалете отблясъка, приближете до 25–40 cm и
+  почистете камерата.
+- **Изгубено устройство:** деактивирайте го от admin панела. За browser PWA не
+  копирайте ръчно нов ключ — сдвоете отново.
+- **Повече от един Uvicorn worker:** текущият in-memory session/connection
+  registry не го поддържа. Първо добавете Redis според условието в `TASK.md`.

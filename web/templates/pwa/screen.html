@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="bg">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#123b6d">
+    <meta name="description" content="Училищен информационен екран School AI.">
+    <title>Информационен екран — School AI</title>
+    <link rel="manifest" href="{{ manifest_url }}">
+    <link rel="icon" href="/static/pwa/icons/icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/pwa/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/pwa/pwa.css">
+    <script src="/static/pwa/common.js" defer></script>
+    <script src="/static/pwa/screen.js" defer></script>
+</head>
+<body class="screen-page" data-page="screen" data-profile="screen">
+    <div class="offline-banner" data-offline-banner hidden>Екранът е офлайн. Показва се последното налично публично съдържание.</div>
+
+    <header class="screen-header">
+        <div class="brand brand--compact">
+            <img class="brand__logo" src="/static/favicon.png" alt="">
+            <span><strong>School AI</strong><small data-device-label>Информационен екран</small></span>
+        </div>
+        <div class="screen-header__meta">
+            <span class="connection-pill" data-connection-status data-state="connecting">
+                <span aria-hidden="true"></span> Свързване
+            </span>
+            <div class="screen-clock">
+                <time data-clock>--:--</time>
+                <span data-date>Зареждане…</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="screen-stage">
+        <section class="public-feed" data-public-feed aria-live="polite">
+            <div class="slide-progress" aria-hidden="true"><span data-slide-progress></span></div>
+            <article class="screen-slide" data-screen-slide>
+                <p class="screen-slide__type" data-slide-type>School AI</p>
+                <h1 data-slide-title>Добре дошли</h1>
+                <p class="screen-slide__body" data-slide-body>Зареждаме актуалната училищна информация…</p>
+                <div class="screen-slide__meta" data-slide-meta></div>
+            </article>
+            <div class="slide-counter" data-slide-counter>1 / 1</div>
+        </section>
+
+        <section class="screen-empty" data-screen-empty hidden>
+            <img src="/static/pwa/icons/icon-192.png" alt="">
+            <p class="eyebrow">School AI</p>
+            <h1>Добре дошли в училище</h1>
+            <p>В момента няма публикувани съобщения.</p>
+        </section>
+
+        <section class="personal-overlay" data-personal-overlay hidden aria-live="assertive">
+            <div class="personal-card">
+                <header>
+                    <p class="eyebrow">Лична информация</p>
+                    <h1 data-screen-person-name>Здравей!</h1>
+                    <p data-screen-person-detail></p>
+                </header>
+                <p class="personal-card__message" data-screen-person-message></p>
+                <div class="personal-card__details">
+                    <article>
+                        <span>Следващ час</span>
+                        <strong data-screen-next-class>Няма предстоящ час</strong>
+                        <small data-screen-next-class-detail></small>
+                    </article>
+                    <article>
+                        <span>Нови съобщения</span>
+                        <strong data-screen-message-count>0</strong>
+                        <small>Потвърдено показване на този екран</small>
+                    </article>
+                </div>
+                <button class="button button--light button--large" type="button" data-screen-close-session>Готово</button>
+            </div>
+        </section>
+    </main>
+
+    <div class="screen-controls">
+        <button class="button button--quiet button--on-dark install-button" type="button" data-install-button hidden>Инсталирай</button>
+        <button class="text-button text-button--on-dark" type="button" data-unpair-device>Смени сдвояването</button>
+    </div>
+
+    <div class="paused-overlay" data-paused-overlay hidden>
+        <div class="state-card">
+            <div aria-hidden="true">Ⅱ</div>
+            <h2>Екранът е временно спрян</h2>
+            <p>Администраторът ще го включи отново.</p>
+        </div>
+    </div>
+</body>
+</html>

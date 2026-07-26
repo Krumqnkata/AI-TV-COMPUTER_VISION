@@ -32,14 +32,19 @@ def _require_scope(
     zone_id: str | None = None,
     screen_id: str | None = None,
     camera_identifier: str | None = None,
+    interaction_point_id: int | None = None,
 ) -> None:
     if not context_allows_scope(
         context,
         zone_id=zone_id,
         screen_id=screen_id,
         camera_identifier=camera_identifier,
+        interaction_point_id=interaction_point_id,
     ):
-        raise HTTPException(status_code=403, detail="Устройството няма достъп до тази зона или екран")
+        raise HTTPException(
+            status_code=403,
+            detail="Устройството няма достъп до тази точка, зона или екран",
+        )
 
 
 @router.post("/detect_qr")
@@ -70,18 +75,30 @@ async def close_session(
 ):
     if not any((request.zone_id, request.interaction_point_id, request.screen_id)):
         raise HTTPException(status_code=400, detail="Посочете зона, точка или екран")
-    _require_scope(device, zone_id=request.zone_id, screen_id=request.screen_id)
+    _require_scope(
+        device,
+        zone_id=request.zone_id,
+        screen_id=request.screen_id,
+        interaction_point_id=request.interaction_point_id,
+    )
     closed = runtime_registry.close(
         zone_id=request.zone_id,
         interaction_point_id=request.interaction_point_id,
         screen_id=request.screen_id,
     )
-    zones = {session.zone_id for session in closed}
-    for zone in zones:
-        await connection_manager.send_to_zone(
-            {"type": "session_closed", "data": {"zone_id": zone}},
-            zone,
-        )
+    notified_screens: set[str] = set()
+    notified_zones: set[str] = set()
+    for session in closed:
+        payload = {"type": "session_closed", "data": {
+            "zone_id": session.zone_id,
+            "screen_id": session.screen_id,
+        }}
+        if session.screen_id and session.screen_id not in notified_screens:
+            await connection_manager.send_to_screen(payload, session.screen_id)
+            notified_screens.add(session.screen_id)
+        elif not session.screen_id and session.zone_id not in notified_zones:
+            await connection_manager.send_to_zone(payload, session.zone_id)
+            notified_zones.add(session.zone_id)
     return {"success": bool(closed), "closed_count": len(closed)}
 
 
@@ -178,7 +195,13 @@ def voice_command(
             session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
         ):
             raise HTTPException(status_code=403, detail="Потребителят няма активна сесия на тази точка")
-        runtime_registry.touch_person(request.person_id, now_bg())
+        runtime_registry.touch_person(
+            request.person_id,
+            now_bg(),
+            zone_id=request.zone_id,
+            screen_id=request.screen_id,
+            session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
+        )
     return handle_voice_command(request.person_id, request.text_query, db)
 
 

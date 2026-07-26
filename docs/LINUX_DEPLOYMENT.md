@@ -122,6 +122,11 @@ sudo systemctl reload nginx
 Nginx шаблонът предава WebSocket upgrade headers. Приложението слуша само на
 `127.0.0.1:5000`; LAN клиентите използват HTTPS адреса на Nginx.
 
+Не отваряйте киоска през raw LAN HTTP адрес. Browser camera access, Service
+Worker и PWA installability изискват HTTPS origin с сертификат, доверен от
+таблетите и Windows устройствата. След TLS настройката проверете `/pair`,
+`/kiosk`, `/screen`, двата manifest файла и `/ws/kiosk`/`/ws/screen`.
+
 Отворете отвън само необходимите портове:
 
 ```bash
@@ -136,8 +141,9 @@ sudo ufw enable
 ## 6. Проверка
 
 ```bash
-curl --fail http://127.0.0.1:5000/api/stats
-curl --fail https://school-ai.example.edu/api/stats
+curl --fail http://127.0.0.1:5000/health/live
+curl --fail http://127.0.0.1:5000/health/ready
+curl --fail https://school-ai.example.edu/health/ready
 sudo -u school-ai /opt/school-ai/.venv/bin/python -m alembic current
 ```
 

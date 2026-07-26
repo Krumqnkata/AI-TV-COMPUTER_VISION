@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="bg">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#123b6d">
+    <meta name="description" content="Интерактивен училищен киоск School AI.">
+    <title>Киоск — School AI</title>
+    <link rel="manifest" href="{{ manifest_url }}">
+    <link rel="icon" href="/static/pwa/icons/icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/pwa/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/pwa/pwa.css">
+    <script src="/static/pwa/vendor/zxing-browser-0.2.1.min.js" defer></script>
+    <script src="/static/pwa/common.js" defer></script>
+    <script src="/static/pwa/kiosk.js" defer></script>
+</head>
+<body class="kiosk-page" data-page="kiosk" data-profile="kiosk">
+    <div class="offline-banner" data-offline-banner hidden>Няма връзка със сървъра. Киоскът ще опита отново автоматично.</div>
+
+    <header class="topbar">
+        <a class="brand brand--compact" href="/" aria-label="School AI начална страница">
+            <img class="brand__logo" src="/static/favicon.png" alt="">
+            <span><strong>School AI</strong><small data-device-label>Училищен киоск</small></span>
+        </a>
+        <div class="topbar__actions">
+            <span class="connection-pill" data-connection-status data-state="connecting">
+                <span aria-hidden="true"></span> Свързване
+            </span>
+            <button class="button button--quiet button--on-dark install-button" type="button" data-install-button hidden>Инсталирай</button>
+        </div>
+    </header>
+
+    <main class="kiosk-shell">
+        <section class="kiosk-idle" data-idle-view>
+            <div class="welcome-panel">
+                <p class="eyebrow">Добре дошли</p>
+                <h1>Покажете QR баджа си</h1>
+                <p class="lead">Ще видите следващия си час и новите си съобщения. Информацията се изчиства автоматично след края на сесията.</p>
+
+                <div class="camera-stage" data-kiosk-camera>
+                    <video data-kiosk-video playsinline muted aria-label="Камера за сканиране на QR бадж"></video>
+                    <div class="scan-frame" aria-hidden="true"></div>
+                    <div class="camera-placeholder" data-camera-placeholder>
+                        <span aria-hidden="true">⌁</span>
+                        <strong>Камерата е готова</strong>
+                        <small>Разрешете достъп при първото използване</small>
+                    </div>
+                    <p class="camera-caption" data-camera-caption>Задръжте QR кода неподвижно в рамката</p>
+                </div>
+
+                <button class="button button--primary button--large button--wide" type="button" data-start-scanner>
+                    Включи сканирането
+                </button>
+
+                <details class="manual-scan">
+                    <summary>Използвам USB скенер или въвеждам код</summary>
+                    <form data-manual-scan-form>
+                        <label class="field">
+                            <span>Код на баджа</span>
+                            <input name="badge_token" minlength="8" maxlength="200" autocomplete="off" autocapitalize="off" required>
+                        </label>
+                        <button class="button button--secondary" type="submit">Провери</button>
+                    </form>
+                </details>
+            </div>
+
+            <aside class="help-panel">
+                <div class="clock-card">
+                    <time data-clock>--:--</time>
+                    <span data-date>Зареждане…</span>
+                </div>
+                <h2>Какво можете да направите?</h2>
+                <ul class="feature-list">
+                    <li><span aria-hidden="true">✓</span> Да проверите следващия си час</li>
+                    <li><span aria-hidden="true">✓</span> Да прочетете нови съобщения</li>
+                    <li><span aria-hidden="true">✓</span> Да зададете училищен въпрос</li>
+                    <li><span aria-hidden="true">✓</span> Да оставите съобщение</li>
+                </ul>
+                <div class="privacy-note">
+                    <strong>Поверителност</strong>
+                    <p>Личните данни не се пазят в браузъра и изчезват от екрана след сесията.</p>
+                </div>
+            </aside>
+        </section>
+
+        <section class="session-view" data-session-view hidden aria-live="polite">
+            <header class="session-hero">
+                <div>
+                    <p class="eyebrow">Лична сесия</p>
+                    <h1 data-person-greeting>Здравей!</h1>
+                    <p data-person-detail></p>
+                </div>
+                <div class="session-hero__actions">
+                    <button class="button button--quiet button--on-dark" type="button" data-speak-session>Прочети на глас</button>
+                    <button class="button button--light" type="button" data-close-session>Приключи</button>
+                </div>
+            </header>
+
+            <nav class="session-tabs" aria-label="Действия в личната сесия">
+                <button type="button" class="is-active" data-session-tab="overview">Обобщение</button>
+                <button type="button" data-session-tab="assistant">Попитай</button>
+                <button type="button" data-session-tab="message">Съобщение</button>
+            </nav>
+
+            <div class="session-content">
+                <section class="tab-panel is-active" data-tab-panel="overview">
+                    <div class="summary-grid">
+                        <article class="summary-card summary-card--wide">
+                            <p class="eyebrow">За вас</p>
+                            <h2>Обобщение</h2>
+                            <p class="summary-message" data-session-message>Зареждане…</p>
+                        </article>
+                        <article class="summary-card">
+                            <p class="eyebrow">Следващ час</p>
+                            <div data-next-class>
+                                <h2>Няма предстоящ час</h2>
+                                <p>За днес няма друга информация.</p>
+                            </div>
+                        </article>
+                        <article class="summary-card">
+                            <p class="eyebrow">Нови съобщения</p>
+                            <h2 data-message-count>0 съобщения</h2>
+                            <ul class="personal-message-list" data-personal-messages></ul>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab-panel="assistant" hidden>
+                    <div class="task-card">
+                        <p class="eyebrow">Училищен асистент</p>
+                        <h2>Какво искате да разберете?</h2>
+                        <p>Попитайте за кабинет, програма, следващ час или училищно събитие.</p>
+                        <form class="inline-form" data-assistant-form>
+                            <label class="field field--grow">
+                                <span>Вашият въпрос</span>
+                                <input name="text_query" maxlength="500" placeholder="Например: Къде е кабинет 304?" required>
+                            </label>
+                            <button class="button button--primary" type="submit">Попитай</button>
+                        </form>
+                        <div class="answer-card" data-assistant-answer hidden aria-live="polite"></div>
+                    </div>
+                </section>
+
+                <section class="tab-panel" data-tab-panel="message" hidden>
+                    <div class="task-card">
+                        <p class="eyebrow">Ново съобщение</p>
+                        <h2>Изберете получател</h2>
+                        <form class="inline-form" data-recipient-search-form>
+                            <label class="field field--grow">
+                                <span>Име или клас</span>
+                                <input name="q" maxlength="100" placeholder="Започнете да пишете име">
+                            </label>
+                            <button class="button button--secondary" type="submit">Търси</button>
+                        </form>
+                        <div class="recipient-list" data-recipient-list aria-live="polite"></div>
+                        <form data-message-form hidden>
+                            <input type="hidden" name="recipient_id">
+                            <p class="selected-recipient">До: <strong data-selected-recipient></strong></p>
+                            <label class="field">
+                                <span>Съобщение</span>
+                                <textarea name="text" minlength="1" maxlength="500" rows="4" required></textarea>
+                                <small><span data-message-length>0</span>/500 знака</small>
+                            </label>
+                            <button class="button button--primary" type="submit">Изпрати съобщението</button>
+                        </form>
+                        <div class="notice" data-message-status hidden aria-live="polite"></div>
+                    </div>
+                </section>
+            </div>
+        </section>
+
+        <section class="state-card state-card--error" data-kiosk-error hidden role="alert">
+            <div aria-hidden="true">!</div>
+            <h2>Не успяхме да прочетем баджа</h2>
+            <p data-kiosk-error-text>Опитайте отново.</p>
+            <button class="button button--primary" type="button" data-retry-scanner>Опитай отново</button>
+        </section>
+    </main>
+
+    <div class="paused-overlay" data-paused-overlay hidden>
+        <div class="state-card">
+            <div aria-hidden="true">Ⅱ</div>
+            <h2>Киоскът е временно спрян</h2>
+            <p>Администраторът ще го включи отново.</p>
+        </div>
+    </div>
+
+    <footer class="device-footer">
+        <span data-zone-label>Несдвоено устройство</span>
+        <button class="text-button" type="button" data-unpair-device>Смени сдвояването</button>
+    </footer>
+</body>
+</html>

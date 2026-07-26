@@ -1,6 +1,6 @@
 # Прогрес по School AI
 
-**Последна проверка:** 23 юли 2026 г.
+**Последна проверка:** 27 юли 2026 г.
 
 ## Текуща стабилна основа
 
@@ -19,12 +19,37 @@
   CodeQL; Dependabot следи Python и Actions pins.
 - Подготвен е Linux deployment без Docker със hardened systemd service,
   Nginx WebSocket/TLS proxy, logrotate и production env шаблон.
+- Реализирани са отделно инсталируеми `/kiosk` и `/screen` PWA профили върху
+  общ responsive web клиент, плюс `/pair` pairing поток.
+- PWA credentials се пазят в отделни `HttpOnly`, `SameSite=Strict` cookies;
+  zone/screen/camera scope-ът се извежда само от server-side device record.
+- QR се обработва локално чрез native `BarcodeDetector` и pinned локален
+  `@zxing/browser` fallback, без camera video или runtime CDN заявка.
+- `/screen` има public и paired режим, audience-filtered feed, отделна
+  WebSocket регистрация и изолация на personal payload от public screens.
+- Delivery ACK има минимален IndexedDB retry queue, deduplication по event ID и
+  offline/online liveness reconnect.
+- Админ панелът управлява pairing QR, физическа точка, режим, аудитория,
+  ротация, яркост, idle timeout, heartbeat и безопасни команди.
+- Добавени са `/health/live` и dependency-aware `/health/ready`, които
+  проверяват база, Alembic revision и operations monitor.
+- Фонов operations monitor отбелязва offline устройства на всеки 15 секунди,
+  без отваряне на админ панела.
+- Админ диагностиката обединява heartbeat, текущ/последен WebSocket, camera и
+  privacy-safe browser capabilities, command ACK и предупреждения за
+  heartbeat, delivery/command ACK и стар backup.
 
 ## Проверено
 
-- 51 теста минават, включително live PostgreSQL migration върху отделната
-  `school_ai_test` база.
-- 54 Python файла преминават `compileall` syntax проверка.
+- 61 теста се откриват локално: 59 минават, а live PostgreSQL и browser
+  acceptance са коректно opt-in и са пропуснати в обикновения SQLite run.
+- Отделният пълен Chromium acceptance минава през pairing, public feed, QR
+  session, targeted delivery, ACK, storage privacy, idle cleanup, reconnect и
+  Service Worker. Windows Microsoft Edge smoke също минава локално.
+- CI е разширен с Chromium full acceptance и Firefox, WebKit и Windows Edge
+  smoke jobs.
+- 63 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
+  преминават `node --check`.
 - Покрити са fresh migration, legacy upgrade, вече stamped database и отказ при outdated schema.
 - Покрити са REST, CSRF, Argon2, RBAC, encrypted secrets, device lifecycle, WebSocket targeting, imports, privacy и backups.
 - Simulator contract тестовете изискват индивидуални credentials по подразбиране.
@@ -32,8 +57,14 @@
 - Реален PostgreSQL backup е създаден с `pg_dump`, проверен с
   `pg_restore --list` и успешно възстановен в disposable `_test` база: 39 таблици на
   Alembic revision `20260722_01`.
-- Server, development и optional-AI profiles нямат известни advisories.
+- Server, development (включително Playwright 1.61.0) и optional-AI profiles
+  нямат известни advisories.
   QR-node профилът има едно ограничено и документирано gTTS/Click изключение.
 - GitHub workflow файловете минават `actionlint 1.7.12`.
 
-Оставащата продуктова работа е описана само в `TASK.md`.
+Софтуерната част на Kiosk PWA v1 е завършена. Минималната operational основа
+вече има health probes, offline monitor, основни предупреждения и
+диагностика. Остават structured logs/metrics, disk/job warnings, scheduler,
+load tests и runbook, както и физическият 2 MP camera proof of concept,
+заключването, петдневният pilot и реалният училищен TLS/PostgreSQL rollout;
+те са описани само в `TASK.md`.

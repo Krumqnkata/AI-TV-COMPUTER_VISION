@@ -19,7 +19,7 @@ from engine.admin_models import (
     DeviceNode,
     StaffAccount,
 )
-from engine.db import now_bg
+from engine.db import Camera, InteractionPoint, now_bg
 from utils.config import Config
 from web.services.admin_control import audit_event, get_setting
 
@@ -38,6 +38,7 @@ SAFE_COMMANDS: dict[str, str] = {
 @dataclass(frozen=True)
 class DeviceContext:
     device: DeviceNode | None
+    credential: DeviceCredential | None = None
     legacy: bool = False
 
     @property
@@ -66,6 +67,7 @@ def create_enrollment_token(
     expected_identifier: str | None = None,
     zone_id: str | None = None,
     screen_id: str | None = None,
+    interaction_point_id: int | None = None,
     initial_config: dict[str, Any] | None = None,
     valid_minutes: int = 15,
     ip_address: str | None = None,
@@ -79,6 +81,7 @@ def create_enrollment_token(
         expected_identifier=(expected_identifier or "").strip()[:100] or None,
         zone_id=(zone_id or "").strip()[:50] or None,
         screen_id=(screen_id or "").strip()[:50] or None,
+        interaction_point_id=interaction_point_id,
         initial_config_json=json.dumps(initial_config or {}, ensure_ascii=False),
         expires_at=now_bg() + timedelta(minutes=valid_minutes),
         created_by_staff_id=actor.id,
@@ -90,7 +93,11 @@ def create_enrollment_token(
         f"Създаден код за сдвояване: {item.label}",
         actor=actor,
         entity_type="DeviceEnrollmentToken",
-        changes={"device_type": item.device_type, "expected_identifier": item.expected_identifier},
+        changes={
+            "device_type": item.device_type,
+            "expected_identifier": item.expected_identifier,
+            "interaction_point_id": item.interaction_point_id,
+        },
         ip_address=ip_address,
     )
     db.commit()
@@ -107,6 +114,7 @@ def enroll_device(
     device_type: str,
     capabilities: list[str] | None = None,
     software_version: str | None = None,
+    require_interaction_point: bool = False,
 ) -> tuple[DeviceNode, str]:
     now = now_bg()
     token = db.query(DeviceEnrollmentToken).filter(
@@ -133,8 +141,17 @@ def enroll_device(
         device.name = name.strip()[:150] or device.name
         device.device_type = device_type
 
-    device.zone_id = token.zone_id
-    device.screen_id = token.screen_id
+    point = db.get(InteractionPoint, token.interaction_point_id) if token.interaction_point_id else None
+    if point is not None and not point.active:
+        raise ValueError("Интерактивната точка за този код вече не е активна")
+    if require_interaction_point and device_type in {"kiosk", "screen"} and point is None:
+        raise ValueError("Кодът за PWA устройство няма зададена интерактивна точка")
+    if point is not None and device_type in {"kiosk", "screen"} and not point.screen_id:
+        raise ValueError("Интерактивната точка няма зададен screen_id")
+
+    device.zone_id = point.zone_id if point is not None else token.zone_id
+    device.screen_id = point.screen_id if point is not None else token.screen_id
+    device.interaction_point_id = point.id if point is not None else None
     device.active = True
     device.status = "online"
     device.config_json = token.initial_config_json or "{}"
@@ -143,14 +160,39 @@ def enroll_device(
     device.last_seen_at = now
     db.flush()
 
+    if device_type == "kiosk":
+        camera = device.camera
+        if camera is None:
+            camera = db.query(Camera).filter(
+                Camera.stream_url == f"device-local://{identifier}",
+            ).first()
+        if camera is None:
+            camera = Camera(
+                name=f"CAM-DEVICE-{device.id}",
+                zone_id=device.zone_id,
+                interaction_point_id=device.interaction_point_id,
+                stream_url=f"device-local://{identifier}",
+                active=True,
+            )
+            db.add(camera)
+            db.flush()
+        else:
+            camera.zone_id = device.zone_id
+            camera.interaction_point_id = device.interaction_point_id
+            camera.active = True
+        device.camera_id = camera.id
+    elif device_type == "screen":
+        device.camera_id = None
+
     raw_key = _new_device_key()
-    db.add(DeviceCredential(
+    credential = DeviceCredential(
         device_id=device.id,
         key_hash=_hash(raw_key),
         fingerprint=_fingerprint(raw_key),
         active=True,
         created_at=now,
-    ))
+    )
+    db.add(credential)
     token.used_at = now
     token.used_by_device_id = device.id
     db.commit()
@@ -183,11 +225,11 @@ def authenticate_device(
             if touch:
                 credential.last_used_at = now
                 db.commit()
-            return DeviceContext(device=credential.device)
+            return DeviceContext(device=credential.device, credential=credential)
 
     legacy_enabled = bool(get_setting(db, "devices.legacy_shared_key_enabled"))
     if legacy_enabled and Config.DEVICE_API_KEY and hmac.compare_digest(supplied_key, Config.DEVICE_API_KEY):
-        return DeviceContext(device=None, legacy=True)
+        return DeviceContext(device=None, credential=None, legacy=True)
     return None
 
 
@@ -228,6 +270,7 @@ def update_heartbeat(
     status: str = "online",
     software_version: str | None = None,
     capabilities: list[str] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> DeviceNode:
     if context.device is None:
         raise ValueError("Старият общ ключ не може да изпраща управляван heartbeat")
@@ -238,9 +281,47 @@ def update_heartbeat(
         device.software_version = software_version.strip()[:50] or None
     if capabilities is not None:
         device.capabilities_json = json.dumps(sorted(set(capabilities)), ensure_ascii=False)
+    if diagnostics is not None:
+        encoded_diagnostics = json.dumps(diagnostics, ensure_ascii=False, sort_keys=True)
+        if len(encoded_diagnostics) > 5_000:
+            raise ValueError("Диагностичните данни са твърде големи")
+        device.diagnostics_json = encoded_diagnostics
     db.commit()
     db.refresh(device)
     return device
+
+
+def record_websocket_event(
+    db: Session,
+    device_identifier: str | None,
+    *,
+    connected: bool,
+) -> None:
+    """Persist WebSocket lifecycle timestamps without changing heartbeat truth."""
+    if not device_identifier:
+        return
+    device = db.query(DeviceNode).filter(
+        DeviceNode.identifier == device_identifier,
+    ).first()
+    if device is None:
+        return
+    now = now_bg()
+    if connected:
+        device.last_websocket_at = now
+        device.last_seen_at = now
+        if device.active and device.status == "offline":
+            device.status = "online"
+    else:
+        device.last_websocket_disconnected_at = now
+    db.commit()
+
+
+def parse_device_diagnostics(device: DeviceNode) -> dict[str, Any]:
+    try:
+        value = json.loads(device.diagnostics_json or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def device_config(db: Session, context: DeviceContext) -> dict[str, Any]:
@@ -257,12 +338,23 @@ def device_config(db: Session, context: DeviceContext) -> dict[str, Any]:
         custom = json.loads(context.device.config_json or "{}")
     except json.JSONDecodeError:
         custom = {}
+    if not isinstance(custom, dict):
+        custom = {}
+    try:
+        capabilities = json.loads(context.device.capabilities_json or "[]")
+    except json.JSONDecodeError:
+        capabilities = []
     return {
         "legacy": False,
         "device_id": context.device.identifier,
+        "device_name": context.device.name,
         "device_type": context.device.device_type,
         "zone_id": context.device.zone_id,
         "screen_id": context.device.screen_id,
+        "camera_id": context.device.camera.name if context.device.camera else None,
+        "interaction_point_id": context.device.interaction_point_id,
+        "capabilities": capabilities,
+        "software_version": context.device.software_version,
         "config_version": context.device.config_version,
         "settings": {
             "kiosk_idle_seconds": get_setting(db, "sessions.kiosk_idle_seconds"),
@@ -378,20 +470,32 @@ def context_allows_scope(
     zone_id: str | None = None,
     screen_id: str | None = None,
     camera_identifier: str | None = None,
+    interaction_point_id: int | None = None,
 ) -> bool:
     if context.legacy or context.device is None:
         return True
-    if zone_id and context.device.zone_id and context.device.zone_id != zone_id:
+    if zone_id and context.device.zone_id != zone_id:
         return False
-    if screen_id and context.device.screen_id and context.device.screen_id != screen_id:
+    if screen_id and context.device.screen_id != screen_id:
         return False
-    if (
-        camera_identifier
-        and context.device.camera is not None
-        and context.device.camera.name != camera_identifier
+    if interaction_point_id and context.device.interaction_point_id != interaction_point_id:
+        return False
+    if camera_identifier and (
+        context.device.camera is None
+        or context.device.camera.name != camera_identifier
     ):
         return False
     return True
+
+
+def revoke_device_context(db: Session, context: DeviceContext) -> None:
+    """Revoke only the credential used by the current browser profile."""
+    if context.legacy or context.device is None:
+        return
+    if context.credential is not None:
+        context.credential.active = False
+    context.device.status = "offline"
+    db.commit()
 
 
 def mark_offline_devices(db: Session) -> int:

@@ -33,8 +33,8 @@ alembic_command.upgrade(_test_migration_config, "head")
 
 
 from engine.auth import get_password_hash  # noqa: E402
-from engine.admin_models import BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
-from engine.db import Badge, Base, DeliveryReceipt, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
+from engine.admin_models import Announcement, BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
+from engine.db import Badge, Base, DeliveryReceipt, InteractionPoint, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
 from tests.fixtures import seed_test_data  # noqa: E402
 from web.database import SessionLocal, assert_schema_current, db_engine  # noqa: E402
 from web.security import require_admin  # noqa: E402
@@ -51,6 +51,7 @@ from web.services.admin_control import (  # noqa: E402
 from web.services.backups import create_sqlite_backup, verify_backup  # noqa: E402
 from web.services.device_control import create_enrollment_token, queue_command  # noqa: E402
 from web.services.imports import execute_schedule_import, preview_schedule_import  # noqa: E402
+from web.services.operations import collect_operational_warnings, run_operations_cycle  # noqa: E402
 from web.services.privacy import execute_retention_cleanup, retention_preview  # noqa: E402
 from utils.config import Config as AppConfig  # noqa: E402
 
@@ -91,6 +92,7 @@ class TestSchoolAIAPI(unittest.TestCase):
             message.status = "active"
             message.delivered_at = None
             message.valid_until = now_bg() + timedelta(days=1)
+        self.db.query(Announcement).delete()
         self.db.query(DeliveryReceipt).delete()
         self.db.commit()
 
@@ -114,6 +116,43 @@ class TestSchoolAIAPI(unittest.TestCase):
         )
         self.assertIn(response.status_code, (302, 303))
         return response
+
+    def _pair_pwa(
+        self,
+        profile: str,
+        identifier: str,
+        *,
+        point_name: str = "Главен вход - Екран",
+        initial_config: dict | None = None,
+    ):
+        point = self.db.query(InteractionPoint).filter(
+            InteractionPoint.name == point_name,
+        ).one()
+        _token, raw_token = create_enrollment_token(
+            self.db,
+            self.staff,
+            label=f"{profile} test",
+            device_type=profile,
+            expected_identifier=identifier,
+            zone_id=point.zone_id,
+            screen_id=point.screen_id,
+            interaction_point_id=point.id,
+            initial_config=initial_config or {},
+        )
+        self.client.get(f"/pair?profile={profile}")
+        csrf_token = self.client.cookies.get("csrf_token")
+        return self.client.post(
+            f"/api/{profile}/pair",
+            headers={
+                "X-Enrollment-Token": raw_token,
+                "X-CSRF-Token": csrf_token,
+            },
+            json={
+                "identifier": identifier,
+                "name": f"{profile.title()} test device",
+                "software_version": "pwa-test",
+            },
+        )
 
     def test_device_authentication_is_required(self):
         response = self.client.post(
@@ -142,6 +181,275 @@ class TestSchoolAIAPI(unittest.TestCase):
         )
         self.assertEqual(timetable.status_code, 200)
         self.assertGreater(len(timetable.json()), 0)
+
+    def test_cross_platform_pwa_pages_and_manifests(self):
+        kiosk = self.client.get("/kiosk")
+        self.assertEqual(kiosk.status_code, 200)
+        self.assertIn('data-profile="kiosk"', kiosk.text)
+        self.assertIn("camera=(self)", kiosk.headers["permissions-policy"])
+        self.assertIn("default-src 'self'", kiosk.headers["content-security-policy"])
+
+        screen = self.client.get("/screen")
+        self.assertEqual(screen.status_code, 200)
+        self.assertIn('data-profile="screen"', screen.text)
+        self.assertIn("camera=()", screen.headers["permissions-policy"])
+
+        kiosk_manifest = self.client.get("/manifest-kiosk.webmanifest").json()
+        screen_manifest = self.client.get("/manifest-screen.webmanifest").json()
+        self.assertEqual(kiosk_manifest["id"], "/pwa/kiosk")
+        self.assertEqual(kiosk_manifest["start_url"], "/kiosk")
+        self.assertEqual(screen_manifest["id"], "/pwa/screen")
+        self.assertEqual(screen_manifest["start_url"], "/screen")
+        self.assertNotEqual(kiosk_manifest["id"], screen_manifest["id"])
+
+        service_worker = self.client.get("/kiosk-sw.js")
+        self.assertEqual(service_worker.status_code, 200)
+        self.assertEqual(service_worker.headers["service-worker-allowed"], "/")
+
+    def test_health_probes_report_process_and_dependency_state(self):
+        live = self.client.get("/health/live")
+        self.assertEqual(live.status_code, 200, live.text)
+        self.assertTrue(live.json()["alive"])
+        self.assertEqual(live.headers["cache-control"], "no-store")
+
+        ready = self.client.get("/health/ready")
+        self.assertEqual(ready.status_code, 200, ready.text)
+        payload = ready.json()
+        self.assertTrue(payload["ready"])
+        self.assertTrue(payload["checks"]["database"]["ok"])
+        self.assertTrue(payload["checks"]["migrations"]["ok"])
+        self.assertTrue(payload["checks"]["operations_monitor"]["ok"])
+        self.assertNotIn("password", ready.text.casefold())
+
+    def test_pwa_pair_bootstrap_and_unpair_use_separate_http_only_credentials(self):
+        response = self._pair_pwa("kiosk", "pwa-kiosk-cookie-test")
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertNotIn("device_key", payload)
+        self.assertEqual(payload["zone_id"], "MAIN_ENTRANCE")
+        self.assertEqual(payload["screen_id"], "SCR-ENTRANCE-01")
+        self.assertTrue(payload["camera_id"].startswith("CAM-DEVICE-"))
+        cookies = response.headers.get_list("set-cookie")
+        self.assertTrue(any("school_ai_kiosk_device_key=" in item and "HttpOnly" in item for item in cookies))
+        self.assertFalse(any("school_ai_screen_device_key=" in item for item in cookies))
+
+        bootstrap = self.client.get("/api/kiosk/bootstrap")
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertEqual(bootstrap.json()["profile"], "kiosk")
+        self.assertEqual(bootstrap.json()["device_id"], "pwa-kiosk-cookie-test")
+
+        csrf_token = self.client.cookies.get("csrf_token")
+        unpair = self.client.post(
+            "/api/kiosk/unpair",
+            headers={"X-CSRF-Token": csrf_token},
+            json={},
+        )
+        self.assertEqual(unpair.status_code, 200)
+        self.assertEqual(self.client.get("/api/kiosk/bootstrap").status_code, 401)
+
+    def test_public_screen_feed_is_scoped_cacheable_and_has_etag(self):
+        self.db.add_all([
+            Announcement(
+                title="Публична новина",
+                body="Информация за всички.",
+                audience="all",
+                priority="normal",
+                publish_from=now_bg() - timedelta(minutes=1),
+                published=True,
+            ),
+            Announcement(
+                title="Само за 8А",
+                body="Ограничена информация.",
+                audience="8А",
+                priority="normal",
+                publish_from=now_bg() - timedelta(minutes=1),
+                published=True,
+            ),
+        ])
+        self.db.commit()
+        paired = self._pair_pwa(
+            "screen",
+            "pwa-public-screen-test",
+            initial_config={
+                "screen_mode": "public",
+                "screen_audience": "all",
+                "show_announcements": True,
+                "show_events": False,
+                "show_substitutions": False,
+            },
+        )
+        self.assertEqual(paired.status_code, 200, paired.text)
+
+        response = self.client.get("/api/screen/feed")
+        self.assertEqual(response.status_code, 200)
+        titles = [slide["title"] for slide in response.json()["slides"]]
+        self.assertIn("Публична новина", titles)
+        self.assertNotIn("Само за 8А", titles)
+        self.assertIn("etag", response.headers)
+        self.assertNotIn("person_id", response.text)
+
+        unchanged = self.client.get(
+            "/api/screen/feed",
+            headers={"If-None-Match": response.headers["etag"]},
+        )
+        self.assertEqual(unchanged.status_code, 304)
+
+    def test_profile_websockets_target_kiosk_and_isolate_public_screen(self):
+        public_screen = self._pair_pwa(
+            "screen",
+            "pwa-public-ws-screen",
+            initial_config={"screen_mode": "public"},
+        )
+        self.assertEqual(public_screen.status_code, 200, public_screen.text)
+        kiosk = self._pair_pwa("kiosk", "pwa-ws-kiosk")
+        self.assertEqual(kiosk.status_code, 200, kiosk.text)
+
+        with (
+            self.client.websocket_connect("/ws/screen") as screen_socket,
+            self.client.websocket_connect("/ws/kiosk") as kiosk_socket,
+        ):
+            screen_registration = screen_socket.receive_json()
+            kiosk_registration = kiosk_socket.receive_json()
+            self.assertEqual(screen_registration["data"]["screen_mode"], "public")
+            self.assertEqual(kiosk_registration["data"]["profile"], "kiosk")
+
+            csrf_token = self.client.cookies.get("csrf_token")
+            detection = self.client.post(
+                "/api/kiosk/detect",
+                headers={"X-CSRF-Token": csrf_token},
+                json={"badge_token": "SCH-8F3A92C1", "confidence": 0.99},
+            )
+            self.assertEqual(detection.status_code, 200, detection.text)
+            self.assertEqual(detection.json()["status"], "success")
+
+            event = kiosk_socket.receive_json()
+            self.assertEqual(event["type"], "badge_detected")
+            self.assertEqual(event["data"]["name"], "Антон Иванов")
+
+            screen_socket.send_json({"type": "ping"})
+            self.assertEqual(screen_socket.receive_json()["type"], "pong")
+
+            kiosk_socket.send_json({
+                "type": "ack",
+                "delivery_id": event["data"]["delivery_id"],
+                "message_ids": event["data"]["message_ids"],
+            })
+            acknowledgment = kiosk_socket.receive_json()
+            self.assertTrue(acknowledgment["data"]["success"])
+
+        self.db.expire_all()
+        screen_device = self.db.query(DeviceNode).filter(
+            DeviceNode.identifier == "pwa-public-ws-screen",
+        ).one()
+        kiosk_device = self.db.query(DeviceNode).filter(
+            DeviceNode.identifier == "pwa-ws-kiosk",
+        ).one()
+        self.assertIsNotNone(screen_device.last_websocket_at)
+        self.assertIsNotNone(kiosk_device.last_websocket_at)
+
+    def test_device_heartbeat_diagnostics_are_visible_to_admin(self):
+        paired = self._pair_pwa("kiosk", "pwa-diagnostics-kiosk")
+        self.assertEqual(paired.status_code, 200, paired.text)
+        csrf_token = self.client.cookies.get("csrf_token")
+        heartbeat = self.client.post(
+            "/api/kiosk/device/heartbeat",
+            headers={"X-CSRF-Token": csrf_token},
+            json={
+                "status": "online",
+                "software_version": "pwa-test-diagnostics",
+                "capabilities": ["camera", "qr", "screen"],
+                "diagnostics": {
+                    "browser": "Test Browser 1",
+                    "platform": "Windows",
+                    "language": "bg-BG",
+                    "secure_context": True,
+                    "standalone": False,
+                    "camera_api": True,
+                    "camera_permission": "granted",
+                    "camera_status": "active",
+                    "scanner_engine": "native",
+                    "barcode_detector": True,
+                    "service_worker": True,
+                    "indexed_db": True,
+                    "web_socket": True,
+                    "speech_synthesis": True,
+                    "viewport_width": 1280,
+                    "viewport_height": 720,
+                },
+            },
+        )
+        self.assertEqual(heartbeat.status_code, 200, heartbeat.text)
+
+        self.db.expire_all()
+        device = self.db.query(DeviceNode).filter(
+            DeviceNode.identifier == "pwa-diagnostics-kiosk",
+        ).one()
+        self.assertIn('"camera_status": "active"', device.diagnostics_json)
+        self.assertNotIn("user_agent", device.diagnostics_json)
+
+        self._login_admin()
+        page = self.client.get("/admin/diagnostics")
+        self.assertEqual(page.status_code, 200, page.text[:500])
+        self.assertIn("Test Browser 1", page.text)
+        self.assertIn("pwa-diagnostics-kiosk", page.text)
+        self.assertIn("Camera API", page.text)
+        self.client.cookies.delete("session")
+
+    def test_operations_cycle_marks_offline_and_builds_ack_backup_warnings(self):
+        stale_time = now_bg() - timedelta(minutes=10)
+        device = DeviceNode(
+            identifier="operations-stale-device",
+            name="Старо тестово устройство",
+            device_type="screen",
+            active=True,
+            status="online",
+            last_seen_at=stale_time,
+        )
+        self.db.add(device)
+        self.db.flush()
+        command = DeviceCommand(
+            device_id=device.id,
+            command="refresh_config",
+            status="delivered",
+            created_at=stale_time,
+            delivered_at=stale_time,
+        )
+        delivery = DeliveryReceipt(
+            delivery_id="operations-stale-delivery",
+            person_id=self.admin.id,
+            screen_id="TEST-SCREEN",
+            zone_id="TEST-ZONE",
+            message_ids_json="[]",
+            status="pending",
+            created_at=stale_time,
+        )
+        self.db.add_all([command, delivery])
+        self.db.commit()
+
+        try:
+            self.assertGreaterEqual(run_operations_cycle(), 1)
+            self.db.expire_all()
+            self.assertEqual(self.db.get(DeviceNode, device.id).status, "offline")
+
+            warnings = collect_operational_warnings(
+                self.db,
+                current_time=now_bg() + timedelta(days=3),
+            )
+            codes = {warning.code for warning in warnings}
+            self.assertIn(f"heartbeat-stale-{device.id}", codes)
+            self.assertIn("commands-without-ack", codes)
+            self.assertIn("deliveries-without-ack", codes)
+            self.assertTrue(
+                {"backup-missing", "backup-stale"}.intersection(codes),
+                codes,
+            )
+        finally:
+            self.db.query(DeviceCommand).filter(DeviceCommand.id == command.id).delete()
+            self.db.query(DeliveryReceipt).filter(
+                DeliveryReceipt.id == delivery.id,
+            ).delete()
+            self.db.query(DeviceNode).filter(DeviceNode.id == device.id).delete()
+            self.db.commit()
 
     def test_websocket_registration_targeted_delivery_and_ack(self):
         with self.client.websocket_connect("/ws") as websocket, self.client.websocket_connect("/ws") as other_zone:
@@ -238,6 +546,38 @@ class TestSchoolAIAPI(unittest.TestCase):
         maria_after = self._scan(token="SCH-7E1B2C3A")
         self.assertEqual(maria_after.json()["status"], "success")
 
+    def test_session_close_uses_all_provided_scope_fields(self):
+        now = now_bg()
+        first_person = self._person("Антон Иванов")
+        second_person = self._person("Георги Петров")
+        runtime_registry.acquire_session(
+            first_person.id,
+            "SHARED_ZONE",
+            101,
+            "SCREEN-A",
+            now,
+        )
+        runtime_registry.acquire_session(
+            second_person.id,
+            "SHARED_ZONE",
+            102,
+            "SCREEN-B",
+            now,
+        )
+
+        closed = runtime_registry.close(
+            zone_id="SHARED_ZONE",
+            screen_id="SCREEN-A",
+        )
+        self.assertEqual([session.person_id for session in closed], [first_person.id])
+        remaining = runtime_registry.current_session(
+            now_bg(),
+            zone_id="SHARED_ZONE",
+            screen_id="SCREEN-B",
+        )
+        self.assertIsNotNone(remaining)
+        self.assertEqual(remaining.person_id, second_person.id)
+
     def test_message_sender_must_have_active_session(self):
         anton = self._person("Антон Иванов")
         georgi = self._person("Георги Петров")
@@ -323,6 +663,7 @@ class TestSchoolAIAPI(unittest.TestCase):
             "/admin/badges/issue",
             "/admin/schedule-import",
             "/admin/devices",
+            "/admin/diagnostics",
             "/admin/privacy",
             "/admin/backups",
             "/admin/person/list",
@@ -433,9 +774,18 @@ class TestSchoolAIAPI(unittest.TestCase):
             finally:
                 AppConfig.DATABASE_URL = original_url
             tables = set(inspect(migration_engine).get_table_names())
+            device_columns = {
+                item["name"]
+                for item in inspect(migration_engine).get_columns("device_nodes")
+            }
             self.assertTrue(LEGACY_TABLE_NAMES.issubset(tables))
             self.assertTrue(CONTROL_TABLE_NAMES.issubset(tables))
             self.assertIn("alembic_version", tables)
+            self.assertTrue({
+                "diagnostics_json",
+                "last_websocket_at",
+                "last_websocket_disconnected_at",
+            }.issubset(device_columns))
             assert_schema_current(migration_engine)
             migration_engine.dispose()
 

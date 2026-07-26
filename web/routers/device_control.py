@@ -64,6 +64,11 @@ def heartbeat(
             status=request.status,
             software_version=request.software_version,
             capabilities=request.capabilities,
+            diagnostics=(
+                request.diagnostics.model_dump(exclude_none=True)
+                if request.diagnostics is not None
+                else None
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

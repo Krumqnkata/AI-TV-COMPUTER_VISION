@@ -16,6 +16,7 @@ from sqladmin import BaseView, expose
 from engine.admin_models import (
     AdminAuditEvent,
     BackupRecord,
+    DeviceCommand,
     DeviceEnrollmentToken,
     DeviceNode,
     ScheduleImportJob,
@@ -23,7 +24,18 @@ from engine.admin_models import (
     StaffRole,
 )
 from engine.auth import get_password_hash
-from engine.db import Badge, Event, Message, Person, SystemEvent, Timetable, hash_token, now_bg, today_bg
+from engine.db import (
+    Badge,
+    Event,
+    InteractionPoint,
+    Message,
+    Person,
+    SystemEvent,
+    Timetable,
+    hash_token,
+    now_bg,
+    today_bg,
+)
 from utils.config import Config
 from web.admin.permissions import current_staff, request_ip, require_session_permission, session_has_permission
 from web.admin.reveal import pop_once, store_once
@@ -50,10 +62,16 @@ from web.services.device_control import (
     SAFE_COMMANDS,
     create_enrollment_token,
     mark_offline_devices,
+    parse_device_diagnostics,
     queue_command,
     rotate_device_key,
 )
 from web.services.imports import execute_schedule_import, preview_schedule_import, timetable_csv_template
+from web.services.operations import (
+    collect_operational_warnings,
+    operations_monitor,
+    readiness_report,
+)
 from web.services.privacy import execute_retention_cleanup, retention_preview
 
 
@@ -94,6 +112,7 @@ class DashboardView(PermissionedBaseView):
         with SessionLocal() as db:
             mark_offline_devices(db)
             today = today_bg()
+            operational_warnings = collect_operational_warnings(db)
             context = {
                 "title": "Контролен център",
                 "subtitle": "Всичко важно за днешния ден на едно място",
@@ -115,6 +134,7 @@ class DashboardView(PermissionedBaseView):
                 "failed_imports": db.query(ScheduleImportJob).filter(ScheduleImportJob.status.in_(("failed", "rejected"))).count(),
                 "master_key_configured": bool(Config.SETTINGS_MASTER_KEY or Config.ADMIN_SECRET_KEY),
                 "refresh_seconds": int(get_setting(db, "dashboard.refresh_seconds")),
+                "operational_warnings": operational_warnings,
             }
             return await self.templates.TemplateResponse(request, "admin/dashboard.html", context)
 
@@ -123,6 +143,7 @@ class DashboardView(PermissionedBaseView):
         self.guard(request)
         with SessionLocal() as db:
             mark_offline_devices(db)
+            operational_warnings = collect_operational_warnings(db)
             return await self.templates.TemplateResponse(request, "admin/fragments/dashboard_health.html", {
                 "last_backup": db.query(BackupRecord).order_by(BackupRecord.created_at.desc()).first(),
                 "failed_imports": db.query(ScheduleImportJob).filter(ScheduleImportJob.status.in_(("failed", "rejected"))).count(),
@@ -130,7 +151,77 @@ class DashboardView(PermissionedBaseView):
                 "online_devices": db.query(DeviceNode).filter(DeviceNode.active.is_(True), DeviceNode.status != "offline").count(),
                 "device_total": db.query(DeviceNode).filter(DeviceNode.active.is_(True)).count(),
                 "refresh_seconds": int(get_setting(db, "dashboard.refresh_seconds")),
+                "operational_warnings": operational_warnings,
             })
+
+
+class DiagnosticsView(PermissionedBaseView):
+    name = "Диагностика"
+    category = "Устройства"
+    icon = "fa-solid fa-stethoscope"
+    permission = "devices.view"
+
+    @expose("/diagnostics", methods=["GET"])
+    async def diagnostics(self, request: Request):
+        self.guard(request)
+        websocket_connections = await connection_manager.snapshot()
+        connections_by_device: dict[str, list[dict]] = {}
+        for connection in websocket_connections:
+            identifier = connection.get("device_id")
+            if identifier:
+                connections_by_device.setdefault(identifier, []).append(connection)
+
+        with SessionLocal() as db:
+            mark_offline_devices(db)
+            warnings = collect_operational_warnings(db)
+            device_rows = []
+            for device in db.query(DeviceNode).order_by(
+                DeviceNode.active.desc(),
+                DeviceNode.name,
+            ).all():
+                try:
+                    capabilities = json.loads(device.capabilities_json or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    capabilities = []
+                if not isinstance(capabilities, list):
+                    capabilities = []
+                connections = connections_by_device.get(device.identifier, [])
+                contacts = [
+                    value
+                    for value in (
+                        device.last_seen_at,
+                        device.last_websocket_at,
+                        device.last_websocket_disconnected_at,
+                    )
+                    if value is not None
+                ]
+                device_rows.append({
+                    "device": device,
+                    "diagnostics": parse_device_diagnostics(device),
+                    "capabilities": capabilities,
+                    "connections": connections,
+                    "last_contact": max(contacts) if contacts else None,
+                    "unacknowledged_commands": db.query(DeviceCommand).filter(
+                        DeviceCommand.device_id == device.id,
+                        DeviceCommand.status.in_(("pending", "delivered")),
+                    ).count(),
+                })
+
+            health = readiness_report()
+            return await self.templates.TemplateResponse(
+                request,
+                "admin/diagnostics.html",
+                {
+                    "title": "Диагностика",
+                    "subtitle": "Камера, браузър, WebSocket, heartbeat и ACK на едно място",
+                    "health": health,
+                    "monitor": operations_monitor.snapshot(),
+                    "warnings": warnings,
+                    "device_rows": device_rows,
+                    "websocket_connections": websocket_connections,
+                    "refresh_seconds": int(get_setting(db, "dashboard.refresh_seconds")),
+                },
+            )
 
 
 class SettingsView(PermissionedBaseView):
@@ -342,13 +433,40 @@ class DeviceManagementView(PermissionedBaseView):
         self.guard(request)
         with SessionLocal() as db:
             mark_offline_devices(db)
+            devices = db.query(DeviceNode).order_by(DeviceNode.active.desc(), DeviceNode.name).all()
+            device_configs = {}
+            for device in devices:
+                try:
+                    parsed = json.loads(device.config_json or "{}")
+                except json.JSONDecodeError:
+                    parsed = {}
+                if not isinstance(parsed, dict):
+                    parsed = {}
+                parsed.setdefault("display_brightness", 100)
+                parsed.setdefault("kiosk_idle_seconds", 60)
+                parsed.setdefault("screen_mode", "public")
+                parsed.setdefault("screen_audience", "all")
+                parsed.setdefault("screen_rotation_seconds", 12)
+                parsed.setdefault("show_announcements", True)
+                parsed.setdefault("show_events", True)
+                parsed.setdefault("show_substitutions", True)
+                device_configs[device.id] = parsed
+            all_points = db.query(InteractionPoint).order_by(InteractionPoint.name).all()
+            points = [
+                point for point in all_points
+                if point.active
+            ]
             return await self.templates.TemplateResponse(request, "admin/devices.html", {
                 "title": "Устройства",
-                "subtitle": "Сдвояване, здраве, конфигурация и безопасни команди",
-                "devices": db.query(DeviceNode).order_by(DeviceNode.active.desc(), DeviceNode.name).all(),
+                "subtitle": "Сдвояване и управление на киоски и информационни екрани",
+                "devices": devices,
                 "tokens": db.query(DeviceEnrollmentToken).order_by(DeviceEnrollmentToken.created_at.desc()).limit(10).all(),
+                "interaction_points": points,
+                "point_names": {point.id: point.name for point in all_points},
+                "device_configs": device_configs,
                 "safe_commands": SAFE_COMMANDS,
                 "can_manage": session_has_permission(request, "devices.manage"),
+                "now": now_bg(),
                 "ok": request.query_params.get("ok"),
                 "error": request.query_params.get("error"),
             })
@@ -359,22 +477,57 @@ class DeviceManagementView(PermissionedBaseView):
         form = await request.form()
         try:
             valid_minutes = int(form.get("valid_minutes") or 15)
-            initial_config = {"display_brightness": int(form.get("display_brightness") or 100)}
+            device_type = str(form.get("device_type", "kiosk")).strip()
+            if device_type not in {"kiosk", "screen"}:
+                raise ValueError("От този екран могат да се сдвояват само PWA киоск или екран.")
+            point_id = int(form.get("interaction_point_id") or 0)
+            brightness = max(10, min(100, int(form.get("display_brightness") or 100)))
+            rotation_seconds = max(5, min(60, int(form.get("screen_rotation_seconds") or 12)))
+            initial_config = {
+                "display_brightness": brightness,
+                "kiosk_idle_seconds": max(15, min(600, int(form.get("kiosk_idle_seconds") or 60))),
+            }
+            if device_type == "screen":
+                screen_mode = str(form.get("screen_mode") or "public")
+                if screen_mode not in {"public", "paired"}:
+                    raise ValueError("Невалиден режим на екрана.")
+                initial_config.update({
+                    "screen_mode": screen_mode,
+                    "screen_audience": str(form.get("screen_audience") or "all").strip()[:100] or "all",
+                    "screen_rotation_seconds": rotation_seconds,
+                    "show_announcements": form.get("show_announcements") == "on",
+                    "show_events": form.get("show_events") == "on",
+                    "show_substitutions": form.get("show_substitutions") == "on",
+                })
             with SessionLocal() as db:
                 actor = current_staff(db, request)
+                point = db.get(InteractionPoint, point_id)
+                if point is None or not point.active:
+                    raise ValueError("Изберете активна интерактивна точка.")
+                if not point.screen_id:
+                    raise ValueError("Избраната точка няма screen_id. Добавете го преди сдвояването.")
                 token, raw = create_enrollment_token(
                     db,
                     actor,
                     label=str(form.get("label", "Ново устройство")),
-                    device_type=str(form.get("device_type", "kiosk")),
+                    device_type=device_type,
                     expected_identifier=str(form.get("identifier", "")) or None,
-                    zone_id=str(form.get("zone_id", "")) or None,
-                    screen_id=str(form.get("screen_id", "")) or None,
+                    zone_id=point.zone_id,
+                    screen_id=point.screen_id,
+                    interaction_point_id=point.id,
                     initial_config=initial_config,
                     valid_minutes=valid_minutes,
                     ip_address=request_ip(request),
                 )
-                ticket = store_once({"kind": "enrollment", "name": token.label, "value": raw, "expires_at": token.expires_at}, actor.id)
+                ticket = store_once({
+                    "kind": "enrollment",
+                    "name": token.label,
+                    "value": raw,
+                    "qr": _qr_data_uri(raw),
+                    "expires_at": token.expires_at,
+                    "profile": device_type,
+                    "interaction_point": point.name,
+                }, actor.id)
         except (ValueError, TypeError) as exc:
             return _redirect("/admin/devices", error=str(exc))
         return RedirectResponse(f"/admin/reveal/{ticket}", status_code=303)
@@ -389,20 +542,77 @@ class DeviceManagementView(PermissionedBaseView):
             if device is None:
                 raise HTTPException(status_code=404)
             device.name = str(form.get("name", device.name)).strip()[:150] or device.name
-            device.zone_id = str(form.get("zone_id", "")).strip()[:50] or None
-            device.screen_id = str(form.get("screen_id", "")).strip()[:50] or None
+            if device.device_type in {"kiosk", "screen"}:
+                try:
+                    point_id = int(form.get("interaction_point_id") or 0)
+                except (TypeError, ValueError):
+                    return _redirect("/admin/devices", error="Изберете валидна интерактивна точка.")
+                point = db.get(InteractionPoint, point_id)
+                if point is None or not point.active or not point.screen_id:
+                    return _redirect(
+                        "/admin/devices",
+                        error="PWA устройството изисква активна точка със зададен screen_id.",
+                    )
+                device.interaction_point_id = point.id
+                device.zone_id = point.zone_id
+                device.screen_id = point.screen_id
+                if device.camera is not None:
+                    device.camera.interaction_point_id = point.id
+                    device.camera.zone_id = point.zone_id
             device.active = form.get("active") == "on"
+            if not device.active:
+                device.status = "offline"
             try:
                 config = json.loads(device.config_json or "{}")
             except json.JSONDecodeError:
                 config = {}
+            if not isinstance(config, dict):
+                config = {}
             try:
                 config["display_brightness"] = max(10, min(100, int(form.get("display_brightness") or 100)))
-            except ValueError:
-                return _redirect("/admin/devices", error="Яркостта трябва да е число между 10 и 100.")
+                config["kiosk_idle_seconds"] = max(
+                    15,
+                    min(600, int(form.get("kiosk_idle_seconds") or 60)),
+                )
+                if device.device_type == "screen":
+                    screen_mode = str(form.get("screen_mode") or "public")
+                    if screen_mode not in {"public", "paired"}:
+                        raise ValueError("Невалиден режим на екрана.")
+                    config.update({
+                        "screen_mode": screen_mode,
+                        "screen_audience": str(form.get("screen_audience") or "all").strip()[:100] or "all",
+                        "screen_rotation_seconds": max(
+                            5,
+                            min(60, int(form.get("screen_rotation_seconds") or 12)),
+                        ),
+                        "show_announcements": form.get("show_announcements") == "on",
+                        "show_events": form.get("show_events") == "on",
+                        "show_substitutions": form.get("show_substitutions") == "on",
+                    })
+            except (TypeError, ValueError) as exc:
+                return _redirect(
+                    "/admin/devices",
+                    error=str(exc) if str(exc) else "Проверете числовите настройки на устройството.",
+                )
             device.config_json = json.dumps(config, ensure_ascii=False)
             device.config_version += 1
-            audit_event(db, "device.saved", f"Обновено устройство: {device.name}", actor=actor, entity_type="DeviceNode", entity_id=device.id, changes={"zone_id": device.zone_id, "screen_id": device.screen_id, "active": device.active, "config_version": device.config_version}, ip_address=request_ip(request))
+            audit_event(
+                db,
+                "device.saved",
+                f"Обновено устройство: {device.name}",
+                actor=actor,
+                entity_type="DeviceNode",
+                entity_id=device.id,
+                changes={
+                    "interaction_point_id": device.interaction_point_id,
+                    "zone_id": device.zone_id,
+                    "screen_id": device.screen_id,
+                    "active": device.active,
+                    "config_version": device.config_version,
+                    "config": config,
+                },
+                ip_address=request_ip(request),
+            )
             db.commit()
         return _redirect("/admin/devices", ok="Устройството е обновено.")
 
@@ -623,6 +833,7 @@ CONTROL_VIEWS = [
     BadgeWorkflowView,
     ScheduleImportView,
     DeviceManagementView,
+    DiagnosticsView,
     SettingsView,
     PrivacyView,
     BackupView,

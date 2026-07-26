@@ -50,7 +50,7 @@ class TestDependencyProfiles(unittest.TestCase):
         self.assertIn("psycopg[binary]", core)
         self.assertTrue({"opencv-python", "pygame", "gTTS", "requests"}.issubset(node))
         self.assertTrue({"google-genai", "protobuf", "ollama"}.issubset(ai))
-        self.assertTrue({"httpx", "requests"}.issubset(dev))
+        self.assertTrue({"httpx", "playwright", "requests"}.issubset(dev))
 
 
 if __name__ == "__main__":

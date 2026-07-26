@@ -113,6 +113,8 @@ SETTING_DEFINITIONS: tuple[SettingDefinition, ...] = (
     SettingDefinition("messages.default_valid_hours", "Съобщения", "Стандартна валидност", "Часове, през които ново съобщение чака доставка.", "integer", 24, 1, 720),
     SettingDefinition("dashboard.refresh_seconds", "Табло", "Опресняване на таблото", "Интервал за автоматично обновяване.", "integer", 30, 10, 300),
     SettingDefinition("devices.offline_after_seconds", "Устройства", "Праг за офлайн", "Устройство без heartbeat се показва като офлайн.", "integer", 90, 30, 3600),
+    SettingDefinition("operations.ack_warning_seconds", "Наблюдение", "Праг за липсващ ACK", "След колко секунди непотвърдена команда или доставка да стане предупреждение.", "integer", 120, 30, 86400),
+    SettingDefinition("operations.backup_warning_hours", "Наблюдение", "Праг за стар backup", "След колко часа последното проверено копие да се счита за старо.", "integer", 24, 1, 720),
     SettingDefinition("devices.legacy_shared_key_enabled", "Устройства", "Стар общ ключ", "Временно допуска DEVICE_API_KEY за стари клиенти.", "boolean", bool(Config.DEVICE_API_KEY)),
     SettingDefinition("assistant.provider", "AI асистент", "Доставчик", "Правила, Gemini или локален Ollama.", "choice", "rules", choices=("rules", "gemini", "ollama")),
     SettingDefinition("assistant.model", "AI асистент", "Модел", "Идентификатор на избрания модел.", "string", Config.GEMINI_MODEL_ID),

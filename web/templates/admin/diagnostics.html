@@ -1,0 +1,171 @@
+{% extends "sqladmin/layout.html" %}
+{% block content %}
+{% macro boolean_status(value, yes='Да', no='Не') -%}
+  {% if value is sameas true %}
+    <span class="school-status school-status-online">{{ yes }}</span>
+  {% elif value is sameas false %}
+    <span class="school-status school-status-offline">{{ no }}</span>
+  {% else %}
+    <span class="school-status">Неизвестно</span>
+  {% endif %}
+{%- endmacro %}
+
+<section class="school-welcome">
+  <div>
+    <p class="school-eyebrow">Operational status</p>
+    <h2>{{ 'Системата е готова' if health.ready else 'Системата изисква внимание' }}</h2>
+    <p>Страницата показва само технически данни и не съхранява пълен user-agent или имена на локални камери.</p>
+  </div>
+  <div class="school-device-links">
+    <span class="school-status {{ 'school-status-online' if health.ready else 'school-status-error' }}">
+      {{ 'READY' if health.ready else 'NOT READY' }}
+    </span>
+    <a class="school-button" href="/admin/diagnostics"><i class="fa-solid fa-rotate"></i> Опресни</a>
+  </div>
+</section>
+
+<section class="school-stat-grid" aria-label="Оперативно обобщение">
+  <article class="school-stat">
+    <i class="fa-solid fa-database"></i>
+    <div><strong>{{ 'OK' if health.checks.database.ok else 'Грешка' }}</strong><span>база данни</span></div>
+    <small>{{ health.database_backend }}</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-arrows-rotate"></i>
+    <div><strong>{{ 'Работи' if monitor.running and not monitor.last_error else 'Проблем' }}</strong><span>offline monitor</span></div>
+    <small>На всеки {{ monitor.interval_seconds }} сек. · последно успешно: {{ monitor.last_success_at or 'очаква първи цикъл' }}</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-plug-circle-check"></i>
+    <div><strong>{{ websocket_connections|length }}</strong><span>активни WebSocket връзки</span></div>
+    <small>Киоски и екрани в този server process</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-triangle-exclamation"></i>
+    <div><strong>{{ warnings|length }}</strong><span>активни предупреждения</span></div>
+    <small>Heartbeat, ACK и backup</small>
+  </article>
+</section>
+
+<section class="school-card {{ 'school-card-warning' if warnings else '' }}">
+  <header>
+    <div>
+      <p class="school-eyebrow">Предупреждения</p>
+      <h2>Какво изисква внимание</h2>
+      <p>Показват се автоматично според праговете в „Настройки → Наблюдение“.</p>
+    </div>
+  </header>
+  {% if warnings %}
+  <div class="school-warning-list">
+    {% for warning in warnings %}
+    <article class="school-warning-item school-warning-{{ warning.severity }}">
+      <i class="fa-solid fa-{{ 'circle-xmark' if warning.severity == 'error' else 'triangle-exclamation' }}"></i>
+      <div><strong>{{ warning.title }}</strong><p>{{ warning.detail }}</p></div>
+      <a class="school-button school-button-small" href="{{ warning.action_url }}">Провери</a>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="school-empty school-empty-compact">
+    <i class="fa-solid fa-circle-check"></i>
+    <h3>Няма активни предупреждения</h3>
+    <p>Heartbeat, ACK и backup проверките са в допустимите граници.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="school-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">Устройства</p>
+      <h2>Подробна диагностика</h2>
+      <p>Камерата може да остане „Неизвестно“, докато потребител не разреши или стартира сканирането поне веднъж.</p>
+    </div>
+    <a href="/admin/devices">Управление на устройства</a>
+  </header>
+
+  {% if device_rows %}
+  <div class="school-diagnostic-grid">
+    {% for row in device_rows %}
+    {% set device = row.device %}
+    {% set diag = row.diagnostics %}
+    <article class="school-diagnostic-card">
+      <header>
+        <div class="school-device-icon">
+          <i class="fa-solid fa-{{ 'tablet-screen-button' if device.device_type == 'kiosk' else 'display' if device.device_type == 'screen' else 'microchip' }}"></i>
+        </div>
+        <div>
+          <h3>{{ device.name }}</h3>
+          <small>{{ device.identifier }} · {{ device.zone_id or 'без зона' }} · {{ device.screen_id or 'без екран' }}</small>
+        </div>
+        <span class="school-status school-status-{{ device.status }}">{{ device.status }}</span>
+      </header>
+
+      <div class="school-diagnostic-sections">
+        <section>
+          <h4><i class="fa-solid fa-heart-pulse"></i> Последна връзка</h4>
+          <dl class="school-diagnostic-list">
+            <div><dt>Последен общ контакт</dt><dd>{{ row.last_contact.strftime('%d.%m.%Y %H:%M:%S') if row.last_contact else 'Никога' }}</dd></div>
+            <div><dt>Последен heartbeat</dt><dd>{{ device.last_seen_at.strftime('%d.%m.%Y %H:%M:%S') if device.last_seen_at else 'Никога' }}</dd></div>
+            <div><dt>Последно WebSocket свързване</dt><dd>{{ device.last_websocket_at.strftime('%d.%m.%Y %H:%M:%S') if device.last_websocket_at else 'Никога' }}</dd></div>
+            <div><dt>Последно WebSocket разкачване</dt><dd>{{ device.last_websocket_disconnected_at.strftime('%d.%m.%Y %H:%M:%S') if device.last_websocket_disconnected_at else 'Няма запис' }}</dd></div>
+            <div><dt>ACK чакащи команди</dt><dd><span class="school-status {{ 'school-status-warning' if row.unacknowledged_commands else 'school-status-online' }}">{{ row.unacknowledged_commands }}</span></dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h4><i class="fa-solid fa-plug"></i> WebSocket</h4>
+          <dl class="school-diagnostic-list">
+            <div><dt>Свързан в момента</dt><dd>{{ boolean_status(row.connections|length > 0, 'Свързан', 'Разкачен') }}</dd></div>
+            {% if row.connections %}
+            <div><dt>Профил</dt><dd>{{ row.connections[0].profile }}</dd></div>
+            <div><dt>Свързан от</dt><dd>{{ row.connections[0].connected_at.strftime('%d.%m.%Y %H:%M:%S') }}</dd></div>
+            <div><dt>Последна активност</dt><dd>{{ row.connections[0].last_activity_at.strftime('%d.%m.%Y %H:%M:%S') }}</dd></div>
+            {% endif %}
+          </dl>
+        </section>
+
+        <section>
+          <h4><i class="fa-solid fa-camera"></i> Камера и QR</h4>
+          <dl class="school-diagnostic-list">
+            <div><dt>Логическа камера</dt><dd>{{ device.camera.name if device.camera else 'Не е зададена' }}</dd></div>
+            <div><dt>Camera API</dt><dd>{{ boolean_status(diag.get('camera_api')) }}</dd></div>
+            <div><dt>Разрешение</dt><dd>{{ diag.get('camera_permission', 'неизвестно') }}</dd></div>
+            <div><dt>Последно състояние</dt><dd><span class="school-status {% if diag.get('camera_status') in ['active', 'ready'] %}school-status-online{% elif diag.get('camera_status') in ['denied', 'error', 'unavailable'] %}school-status-error{% elif diag.get('camera_status') in ['unknown', 'starting', none] %}school-status-warning{% endif %}">{{ diag.get('camera_status', 'unknown') }}</span></dd></div>
+            <div><dt>QR engine</dt><dd>{{ diag.get('scanner_engine', 'не е стартиран') }}</dd></div>
+            <div><dt>BarcodeDetector</dt><dd>{{ boolean_status(diag.get('barcode_detector')) }}</dd></div>
+          </dl>
+        </section>
+
+        <section>
+          <h4><i class="fa-brands fa-chrome"></i> Browser capabilities</h4>
+          <dl class="school-diagnostic-list">
+            <div><dt>Браузър</dt><dd>{{ diag.get('browser', 'неизвестен') }}</dd></div>
+            <div><dt>Платформа</dt><dd>{{ diag.get('platform', 'неизвестна') }}</dd></div>
+            <div><dt>HTTPS / secure context</dt><dd>{{ boolean_status(diag.get('secure_context')) }}</dd></div>
+            <div><dt>Инсталирано PWA</dt><dd>{{ boolean_status(diag.get('standalone')) }}</dd></div>
+            <div><dt>Service Worker</dt><dd>{{ boolean_status(diag.get('service_worker')) }}</dd></div>
+            <div><dt>IndexedDB</dt><dd>{{ boolean_status(diag.get('indexed_db')) }}</dd></div>
+            <div><dt>WebSocket API</dt><dd>{{ boolean_status(diag.get('web_socket')) }}</dd></div>
+            <div><dt>Text-to-Speech</dt><dd>{{ boolean_status(diag.get('speech_synthesis')) }}</dd></div>
+            <div><dt>Viewport</dt><dd>{% if diag.get('viewport_width') is not none %}{{ diag.get('viewport_width') }} × {{ diag.get('viewport_height') }}{% else %}неизвестен{% endif %}</dd></div>
+          </dl>
+          {% if row.capabilities %}
+          <div class="school-capability-pills">
+            {% for capability in row.capabilities %}<span class="school-pill">{{ capability }}</span>{% endfor %}
+          </div>
+          {% endif %}
+        </section>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="school-empty">
+    <i class="fa-solid fa-satellite-dish"></i>
+    <h3>Няма регистрирани устройства</h3>
+    <p>Сдвоете киоск или екран, за да започне диагностиката.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,6 +1,6 @@
 # School AI — окончателен активен roadmap
 
-**Последна актуализация:** 24 юли 2026 г.
+**Последна актуализация:** 26 юли 2026 г.
 
 Този файл е единственият актуален списък с оставащата работа по продукта.
 Завършеното е обобщено в `PROGRESS.md`, а историческата спецификация е в
@@ -12,6 +12,8 @@
   Nginx/TLS и един Uvicorn worker.
 - Първият pilot е с два таблета и не изисква Redis.
 - Един таблет е комбиниран `camera + qr + kiosk + screen + audio` node.
+- `/screen` има и отделен public/paired профил за Windows PC, TV browser или
+  втори таблет; двата PWA профила могат да се инсталират независимо.
 - QR видеото се обработва локално на таблета. Към сървъра се изпраща само
   прочетеният badge token.
 - Основният tablet клиент е локално хостван web/PWA интерфейс. Малък Android
@@ -42,6 +44,8 @@
   Docker.
 - Премахнати legacy face-recognition, mood detection и несъвместими стари
   модули.
+- Реализирани `/pair`, `/kiosk` и `/screen` PWA профили с локален QR decoder,
+  HttpOnly credentials, public feed, targeted personal delivery и browser E2E.
 
 ## Оставаща работа по приоритет
 
@@ -57,7 +61,7 @@
 
 ### 1. Tablet QR proof of concept
 
-- [ ] Да се създаде малка HTTPS страница, която отваря предната камера на
+- [x] Да се създаде малка HTTPS страница, която отваря предната камера на
   наличния таблет и декодира само QR кодове.
 - [ ] Да се използва реалният формат на училищния бадж с QR размер приблизително
   40–45 mm, чист бял фон и без декоративно лого върху кода.
@@ -73,32 +77,36 @@
 
 ### 2. Tablet Kiosk PWA v1
 
-- [ ] Старият общ `index.html` прототип да се раздели на ясни client режими:
-  `/pair`, `/kiosk` и при нужда `/screen`.
-- [ ] Всички CSS, шрифтове, QR decoder и JavaScript assets да се сервират
+- [x] Старият общ `index.html` прототип да се раздели на ясни client режими:
+  `/pair`, `/kiosk` и `/screen`.
+- [x] Всички CSS, шрифтове, QR decoder и JavaScript assets да се сервират
   локално, без Tailwind CDN, Google Fonts или друга runtime internet зависимост.
-- [ ] `/pair` да приема еднократен enrollment код и да записва индивидуалните
+- [x] `/pair` да приема еднократен enrollment код и да записва индивидуалните
   `device_id` и `device_key` без secret в URL.
-- [ ] Устройството да получава `zone_id`, `screen_id`, `camera_id`, capabilities
+- [x] Устройството да получава `zone_id`, `screen_id`, `camera_id`, capabilities
   и runtime настройки от сървъра.
-- [ ] Предната камера да сканира QR локално и да извиква съществуващия
-  `/api/detect_qr` договор.
-- [ ] WebSocket клиентът да се регистрира с индивидуалните credentials и да
+- [x] Предната камера да сканира QR локално и чрез scoped
+  `/api/kiosk/detect` facade да използва съществуващата QR detection service.
+- [x] WebSocket клиентът да се регистрира с индивидуалните credentials и да
   получава само събитията за своя екран/зона.
-- [ ] Да има heartbeat, config refresh, command polling/ACK и видим
+- [x] Да има heartbeat, config refresh, command polling/ACK и видим
   online/offline статус.
-- [ ] Reconnect логиката да използва backoff, а delivery ACK да се повтаря
+- [x] Reconnect логиката да използва backoff, а delivery ACK да се повтаря
   безопасно след временна мрежова грешка.
-- [ ] Да има защита от повторно показване на една и съща доставка.
-- [ ] Личната сесия да се изчиства автоматично след зададения idle timeout.
-- [ ] Интерфейсът да има големи touch бутони, текстово поле, ясни съобщения за
+- [x] Да има защита от повторно показване на една и съща доставка.
+- [x] Личната сесия да се изчиства автоматично след зададения idle timeout.
+- [x] Интерфейсът да има големи touch бутони, текстово поле, ясни съобщения за
   грешка и browser TTS.
-- [ ] Текстовият интерфейс да използва съществуващия assistant API. STT не е
+- [x] Текстовият интерфейс да използва съществуващия assistant API. STT не е
   част от задължителния v1.
-- [ ] Публичният kiosk да не съдържа person registration, system administration
+- [x] Публичният kiosk да не съдържа person registration, system administration
   или други staff действия.
-- [ ] Да се добавят browser E2E тестове за pairing, QR session, reconnect,
+- [x] Да се добавят browser E2E тестове за pairing, QR session, reconnect,
   targeted delivery, ACK и idle cleanup.
+
+**Статус:** софтуерната реализация и Chromium acceptance са завършени.
+Хардуерният критерий остава отворен до изпълнение на физическите тестове в
+раздели 1 и 3.
 
 **Критерий за приемане:** таблетът може да бъде сдвоен от чисто състояние, да
 се възстанови след рестарт, да сканира бадж и да завърши таргетирана сесия без
@@ -129,15 +137,21 @@
 
 ### 4. Минимална наблюдаемост и автоматизация
 
-- [ ] Да се добавят `/health/live` и `/health/ready` endpoints.
+- [x] Да се добавят `/health/live` и `/health/ready` endpoints.
 - [ ] Логовете да станат structured JSON с request/correlation ID, device ID и
   безопасно редуцирани грешки без credentials или лични съобщения.
 - [ ] Да има метрики за HTTP грешки, latency, активни WebSocket връзки,
   offline устройства, QR failures и забавени ACK.
-- [ ] Offline marking да работи като периодична задача, а не само при отваряне
+- [x] Offline marking да работи като периодична задача, а не само при отваряне
   на admin dashboard.
-- [ ] Да има предупреждения за устройство без heartbeat, доставка/команда без
-  ACK, стар backup, недостатъчно disk space и неуспешна периодична задача.
+- [ ] Да има пълен набор оперативни предупреждения:
+  - [x] устройство без heartbeat;
+  - [x] доставка/команда без ACK;
+  - [x] липсващ или стар проверен backup;
+  - [ ] недостатъчно disk space;
+  - [ ] неуспешна периодична задача.
+- [x] Да има админ диагностика за камера, WebSocket, browser capabilities,
+  heartbeat, чакащи command ACK и последна връзка.
 - [ ] Retention cleanup и backup графикът да бъдат автоматизирани с
   deployment-level scheduler и audit.
 - [ ] Да се добавят load/reconnect тестове за очаквания брой устройства.

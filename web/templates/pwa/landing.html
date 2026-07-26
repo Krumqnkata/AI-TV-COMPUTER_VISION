@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="bg">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#123b6d">
+    <meta name="description" content="School AI — училищни киоски, екрани и администрация.">
+    <title>School AI</title>
+    <link rel="icon" href="/static/pwa/icons/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="/static/pwa/pwa.css">
+    <script src="/static/pwa/common.js" defer></script>
+</head>
+<body class="landing-page" data-page="landing">
+    <main class="landing-shell">
+        <header class="brand brand--centered">
+            <img class="brand__logo brand__logo--large" src="/static/favicon.png" alt="School AI">
+            <div>
+                <p class="eyebrow">Училищна информационна система</p>
+                <h1>Изберете как ще използвате това устройство</h1>
+                <p class="lead">Един и същ проект работи на Android таблет, Windows компютър и съвременен браузър.</p>
+            </div>
+        </header>
+
+        <section class="profile-grid" aria-label="Профили на устройството">
+            <article class="profile-card">
+                <div class="profile-card__icon" aria-hidden="true">⌁</div>
+                <p class="eyebrow">Интерактивно устройство</p>
+                <h2>Киоск</h2>
+                <p>Сканиране на QR бадж, персонална справка, училищен асистент и изпращане на съобщения.</p>
+                <a class="button button--primary button--wide" href="/kiosk">Отвори киоска</a>
+                <a class="text-link" href="/pair?profile=kiosk">Сдвои нов киоск</a>
+            </article>
+
+            <article class="profile-card">
+                <div class="profile-card__icon" aria-hidden="true">▣</div>
+                <p class="eyebrow">Публично съдържание</p>
+                <h2>Информационен екран</h2>
+                <p>Съобщения, събития и замествания. По избор показва и резултат от отделен сдвоен киоск.</p>
+                <a class="button button--primary button--wide" href="/screen">Отвори екрана</a>
+                <a class="text-link" href="/pair?profile=screen">Сдвои нов екран</a>
+            </article>
+        </section>
+
+        <footer class="landing-footer">
+            <a class="button button--quiet" href="/admin">Административен панел</a>
+            <p>Настройките, съдържанието и устройствата се управляват от администратора.</p>
+        </footer>
+    </main>
+</body>
+</html>

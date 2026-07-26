@@ -7,6 +7,9 @@ GitHub Actions изпълнява следните проверки при pull 
 - live Alembic migration върху disposable PostgreSQL 18 service database;
 - `compileall` и `pip check`;
 - `pip-audit` за server, development, optional AI и QR-node профилите;
+- пълен Chromium PWA acceptance за pairing, QR session, targeted delivery,
+  ACK, idle cleanup, reconnect и Service Worker;
+- smoke проверки с Firefox, WebKit и Microsoft Edge върху Windows runner;
 - CodeQL Python анализ с `security-extended` queries;
 - седмични Dependabot проверки за Python и GitHub Actions.
 
@@ -21,6 +24,10 @@ Workflow файловете са:
 - `Tests / Python 3.11`;
 - `Tests / Python 3.12`;
 - `Dependency audit`;
+- `PWA / Chromium full acceptance`;
+- `PWA / Firefox smoke`;
+- `PWA / WebKit smoke`;
+- `PWA / Windows Edge smoke`;
 - `CodeQL / Python`, когато repository visibility позволява CodeQL upload.
 
 Локалният еквивалент е:
@@ -35,6 +42,19 @@ Workflow файловете са:
 .\.venv\Scripts\python.exe -m pip_audit -r requirements-ai.txt
 .\.venv\Scripts\python.exe -m pip_audit -r requirements-node.txt --ignore-vuln PYSEC-2026-2132
 ```
+
+Локален Chromium acceptance:
+
+```powershell
+.\.venv\Scripts\python.exe -m playwright install chromium
+$env:RUN_BROWSER_E2E='1'
+$env:PLAYWRIGHT_BROWSER='chromium'
+$env:PWA_E2E_MODE='full'
+.\.venv\Scripts\python.exe -m unittest tests.test_pwa_browser -v
+```
+
+Browser suite-ът стартира отделен FastAPI процес и временна SQLite база. Той
+не използва development или production PostgreSQL.
 
 За локалния live PostgreSQL test задайте `POSTGRES_TEST_DATABASE_URL` само
 към отделна база, чието име завършва на `_test`.

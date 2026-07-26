@@ -21,6 +21,10 @@ from web.services.device_control import DeviceContext, authenticate_device
 
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+PWA_PROFILE_COOKIES = {
+    "kiosk": ("school_ai_kiosk_device_id", "school_ai_kiosk_device_key"),
+    "screen": ("school_ai_screen_device_id", "school_ai_screen_device_key"),
+}
 
 
 def verify_device_key_value(value: str | None) -> bool:
@@ -47,6 +51,39 @@ def require_device(
             detail="Невалиден ключ на крайното устройство",
         )
     return context
+
+
+def get_profile_device_context(
+    request: Request,
+    db: Session,
+    profile: str,
+) -> DeviceContext | None:
+    """Authenticate one browser PWA profile without exposing its secret to JS."""
+    if profile not in PWA_PROFILE_COOKIES:
+        return None
+    identifier_cookie, key_cookie = PWA_PROFILE_COOKIES[profile]
+    device_id = request.headers.get("x-device-id") or request.cookies.get(identifier_cookie)
+    device_key = request.headers.get("x-device-key") or request.cookies.get(key_cookie)
+    context = authenticate_device(db, device_id, device_key)
+    if context is None or context.device is None or context.device.device_type != profile:
+        return None
+    return context
+
+
+def require_profile_device(profile: str):
+    def dependency(
+        request: Request,
+        db: Session = Depends(get_db),
+    ) -> DeviceContext:
+        context = get_profile_device_context(request, db, profile)
+        if context is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Устройството не е сдвоено или ключът му е невалиден",
+            )
+        return context
+
+    return dependency
 
 
 def get_staff_session(
@@ -127,12 +164,29 @@ def install_security_middleware(app) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' "
-            "https://cdn.tailwindcss.com; script-src 'self' 'unsafe-inline' "
-            "https://cdn.tailwindcss.com; connect-src 'self' ws: wss:"
+        pwa_page = (
+            request.url.path in {"/pair", "/kiosk", "/screen", "/kiosk-sw.js"}
+            or request.url.path.startswith("/static/pwa/")
+            or request.url.path.startswith("/manifest-")
         )
+        if pwa_page:
+            camera_policy = "camera=(self)" if request.url.path in {"/pair", "/kiosk"} else "camera=()"
+            response.headers["Permissions-Policy"] = (
+                f"{camera_policy}, microphone=(), geolocation=()"
+            )
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+                "img-src 'self' data: blob:; media-src 'self' blob:; "
+                "style-src 'self'; script-src 'self'; worker-src 'self'; "
+                "manifest-src 'self'; connect-src 'self' ws: wss:"
+            )
+        else:
+            response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' "
+                "https://cdn.tailwindcss.com; script-src 'self' 'unsafe-inline' "
+                "https://cdn.tailwindcss.com; connect-src 'self' ws: wss:"
+            )
         return response
 
     @app.middleware("http")

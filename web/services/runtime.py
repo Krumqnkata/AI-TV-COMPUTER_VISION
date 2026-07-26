@@ -104,11 +104,27 @@ class RuntimeRegistry:
             )
             return True, key
 
-    def touch_person(self, person_id: int, now: datetime) -> None:
+    def touch_person(
+        self,
+        person_id: int,
+        now: datetime,
+        *,
+        zone_id: str | None = None,
+        screen_id: str | None = None,
+        session_timeout_seconds: int = 60,
+    ) -> None:
         with self._lock:
             for session in self.active_sessions.values():
-                if session.person_id == person_id and (now - session.last_activity).total_seconds() < 60:
-                    session.last_activity = now
+                if (
+                    session.person_id != person_id
+                    or (now - session.last_activity).total_seconds() >= session_timeout_seconds
+                ):
+                    continue
+                if screen_id and session.screen_id != screen_id:
+                    continue
+                if zone_id and session.zone_id != zone_id:
+                    continue
+                session.last_activity = now
 
     def person_has_session(
         self,
@@ -129,6 +145,30 @@ class RuntimeRegistry:
                 return True
         return False
 
+    def current_session(
+        self,
+        now: datetime,
+        *,
+        zone_id: str | None = None,
+        screen_id: str | None = None,
+        session_timeout_seconds: int = 60,
+        touch: bool = False,
+    ) -> ActiveSession | None:
+        """Return the active session scoped to one managed kiosk/screen."""
+        with self._lock:
+            for key, session in list(self.active_sessions.items()):
+                if (now - session.last_activity).total_seconds() >= session_timeout_seconds:
+                    self.active_sessions.pop(key, None)
+                    continue
+                if screen_id and session.screen_id != screen_id:
+                    continue
+                if zone_id and session.zone_id != zone_id:
+                    continue
+                if touch:
+                    session.last_activity = now
+                return session
+        return None
+
     def close(
         self,
         zone_id: str | None = None,
@@ -138,11 +178,14 @@ class RuntimeRegistry:
         closed: list[ActiveSession] = []
         with self._lock:
             for key, session in list(self.active_sessions.items()):
-                matches = (
-                    (screen_id and session.screen_id == screen_id)
-                    or (interaction_point_id and session.interaction_point_id == interaction_point_id)
-                    or (zone_id and session.zone_id == zone_id)
-                )
+                criteria = []
+                if screen_id:
+                    criteria.append(session.screen_id == screen_id)
+                if interaction_point_id:
+                    criteria.append(session.interaction_point_id == interaction_point_id)
+                if zone_id:
+                    criteria.append(session.zone_id == zone_id)
+                matches = bool(criteria) and all(criteria)
                 if matches:
                     closed.append(self.active_sessions.pop(key))
         return closed

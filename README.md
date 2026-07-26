@@ -1,20 +1,26 @@
 # School AI — QR Badge Assistant
 
-Училищна информационна система с QR баджове, FastAPI backend, индивидуално управлявани camera/kiosk nodes и единен български SQLAdmin контролен център. Активната версия не използва лицево разпознаване, mood detection или друга биометрия.
+Училищна информационна система с QR баджове, FastAPI backend, cross-platform
+киоск/екран PWA и единен български SQLAdmin контролен център. Активната версия
+не използва лицево разпознаване, mood detection или друга биометрия.
 
 ## Архитектура
 
 ```text
-QR camera node ── device ID/key ──► FastAPI routers ──► services ──► database
-                                             │
-screen/kiosk ◄──── WebSocket + delivery ACK ─┘
-                                             │
-staff browser ◄──── RBAC + CSRF ───── SQLAdmin control centre
+tablet/Windows kiosk ── HttpOnly profile credential ──► FastAPI ──► PostgreSQL
+        │                    │                              │
+ local QR camera       WebSocket + retry ACK               │
+        │                    ▼                              │
+        └────────► paired/public `/screen` PWA ◄────────────┘
+                                   │
+staff browser ◄──────── RBAC + CSRF SQLAdmin control centre
 ```
 
 - `web/routers/` съдържа HTTP и WebSocket договорите;
 - `web/services/` съдържа business logic за QR, delivery, RBAC, devices, imports, privacy и backups;
 - `web/admin/` съдържа permission-aware административните views;
+- `web/static/pwa/` и `web/templates/pwa/` съдържат общия offline-capable
+  клиент за `/pair`, `/kiosk` и `/screen`;
 - `engine/` съдържа SQLAlchemy моделите и security primitives;
 - `migrations/` е единственият източник за database schema;
 - `client_qr_node.py` е клиентът за камера, QR и локален говор;
@@ -26,6 +32,8 @@ staff browser ◄──── RBAC + CSRF ───── SQLAdmin control centr
 - Python 3.11 или 3.12;
 - Windows за предоставените `.bat` launchers или Linux със `systemd`;
 - PostgreSQL 18 с Command Line Tools за runtime базата и backups;
+- HTTPS адрес за LAN киоски/екрани (камерата и PWA инсталацията не работят от
+  обикновен `http://192.168...`; `localhost` е допустим само за development);
 - SQLite остава само за бързите изолирани unit/integration fixtures.
 
 Зависимостите са разделени по роля:
@@ -81,6 +89,9 @@ Copy-Item .env.example .env.local
 - приложение: `http://localhost:5000/`
 - администрация: `http://localhost:5000/admin`
 - OpenAPI: `http://localhost:5000/docs`
+- liveness: `http://localhost:5000/health/live`
+- readiness (база, migrations и background monitor):
+  `http://localhost:5000/health/ready`
 
 Runtime базата, imports и backups не се проследяват от Git. Преди migration на съществуваща инсталация винаги създавайте проверено резервно копие.
 
@@ -88,15 +99,49 @@ Linux production deployment без Docker е описан в
 `docs/LINUX_DEPLOYMENT.md`. Предоставени са `run.sh`, hardened `systemd`
 service, Nginx WebSocket/TLS шаблон и logrotate правило.
 
-## Устройства
+## Киоск и информационен екран PWA
 
-1. В админ панела отворете **Устройства → Управление на устройства**.
-2. Създайте кратък еднократен enrollment код за конкретната зона/екран.
-3. На устройството задайте `DEVICE_ID` и `DEVICE_ENROLLMENT_TOKEN`.
-4. При първото стартиране запазете върнатия `DEVICE_KEY` в локалната конфигурация.
-5. След сдвояване изчистете enrollment token-а.
+Един и същ локално хостван web клиент работи на Android таблет, Windows PC и
+съвременен браузър. Има два отделно инсталируеми профила:
 
-Стартиране на реалния QR node:
+- `/kiosk` — локална QR камера, лична сесия, следващ час, съобщения, текстов
+  асистент и включван от потребителя browser TTS;
+- `/screen` — публични обяви, събития и замествания. В режим **Сдвоен** показва
+  и таргетирания личен резултат от киоск със същите `screen_id`/`zone_id`.
+
+Сдвояване:
+
+1. В **Устройства → Интерактивни точки** създайте точка със `zone_id` и
+   `screen_id`.
+2. В **Устройства → Управление на устройства** изберете „Киоск“ или „Екран“,
+   точката и нужния режим.
+3. Отворете защитения училищен адрес `/pair?profile=kiosk` или
+   `/pair?profile=screen` на устройството.
+4. Сканирайте еднократния QR код от админ панела. Индивидуалният ключ се записва
+   като `HttpOnly`, `SameSite=Strict` cookie и не попада в URL, JavaScript
+   storage или log.
+5. Използвайте бутона **Инсталирай** в Chrome/Edge/поддържан mobile browser или
+   оставете клиента да работи като обикновена responsive web страница.
+
+Двата manifest файла имат различни PWA `id` и `start_url`, затова `/kiosk` и
+`/screen` могат да бъдат инсталирани отделно на един Windows компютър. Firefox
+desktop остава напълно използваем browser fallback, дори когато не предлага
+manifest-based инсталация.
+
+Пълната настройка, browser матрицата, физическият pilot и troubleshooting са в
+[`docs/KIOSK_PWA.md`](docs/KIOSK_PWA.md).
+
+Техническото състояние на всеки сдвоен клиент се вижда в **Устройства →
+Диагностика**. Там се показват heartbeat, текуща WebSocket връзка, последно
+свързване/разкачване, camera permission/status, безопасен browser capability
+snapshot и чакащи command ACK. Background monitor отбелязва остарелите
+устройства offline на всеки 15 секунди, независимо дали админ панелът е
+отворен.
+
+## Python QR node fallback
+
+`client_qr_node.py` остава за Mini PC, Raspberry Pi или отделна USB/IP камера,
+но не е основният tablet клиент. Стартиране:
 
 ```powershell
 .\run-node.bat
@@ -147,8 +192,19 @@ Deployment настройки като database URL, TLS, session/master keys и
 
 Основният suite създава временна SQLite база и не докосва runtime PostgreSQL базата. Допълнителният live PostgreSQL migration test използва само `POSTGRES_TEST_DATABASE_URL` и отказва база, чието име не завършва на `_test`. Подробностите са в `docs/WINDOWS_POSTGRESQL.md`.
 
-GitHub Actions изпълнява тестовете на Python 3.11/3.12 с PostgreSQL 18,
-dependency audit и CodeQL. Настройката и required checks са описани в
+За browser acceptance:
+
+```powershell
+.\.venv\Scripts\python.exe -m playwright install chromium
+$env:RUN_BROWSER_E2E='1'
+$env:PLAYWRIGHT_BROWSER='chromium'
+$env:PWA_E2E_MODE='full'
+.\.venv\Scripts\python.exe -m unittest tests.test_pwa_browser -v
+```
+
+GitHub Actions изпълнява Python 3.11/3.12 и PostgreSQL 18 тестовете, dependency
+audit, CodeQL, пълен Chromium PWA acceptance и smoke проверки с Firefox,
+WebKit и Microsoft Edge на Windows. Настройката и required checks са описани в
 `docs/CI.md`.
 
 Допълнителни документи:
@@ -156,6 +212,7 @@ dependency audit и CodeQL. Настройката и required checks са оп�
 - `ADMIN_GUIDE.md` — ежедневна работа в панела;
 - `docs/WINDOWS_POSTGRESQL.md` — локална PostgreSQL инсталация, тестове и restore;
 - `docs/LINUX_DEPLOYMENT.md` — production инсталация без Docker;
+- `docs/KIOSK_PWA.md` — pairing, инсталация, режими, сигурност и pilot;
 - `docs/CI.md` — GitHub Actions и branch protection checks;
 - `docs/SECURITY.md` — dependency audit правила и временни изключения;
 - `TASK.md` — активен roadmap;

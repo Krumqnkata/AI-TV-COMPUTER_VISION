@@ -16,9 +16,13 @@ from web.database import SessionLocal, assert_schema_current, db_engine, get_db
 from web.routers.admin_api import router as admin_api_router
 from web.routers.device_api import router as device_api_router
 from web.routers.device_control import router as device_control_router
+from web.routers.health import router as health_router
+from web.routers.pwa import router as pwa_router
+from web.routers.pwa_pages import router as pwa_pages_router
 from web.routers.system import router as system_router
 from web.security import ensure_runtime_secrets, install_security_middleware
 from web.services.admin_control import ensure_admin_foundation
+from web.services.operations import operations_monitor
 from web.services.runtime import runtime_registry
 
 
@@ -31,7 +35,11 @@ async def lifespan(_app: FastAPI):
     assert_schema_current()
     with SessionLocal() as startup_db:
         ensure_admin_foundation(startup_db)
-    yield
+    await operations_monitor.start()
+    try:
+        yield
+    finally:
+        await operations_monitor.stop()
 
 
 app = FastAPI(title="School AI Control Panel", version="2.0.0", lifespan=lifespan)
@@ -51,6 +59,9 @@ admin_static = Config.PROJECT_ROOT / "web" / "static" / "admin"
 app.mount("/static/admin", StaticFiles(directory=str(admin_static)), name="admin-static")
 
 app.include_router(system_router)
+app.include_router(health_router)
+app.include_router(pwa_pages_router)
+app.include_router(pwa_router)
 app.include_router(device_api_router)
 app.include_router(device_control_router)
 app.include_router(admin_api_router)

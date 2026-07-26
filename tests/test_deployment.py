@@ -24,6 +24,9 @@ class TestContinuousIntegrationContracts(unittest.TestCase):
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn('"3.11"', workflow)
         self.assertIn('"3.12"', workflow)
+        self.assertIn("browser-tests:", workflow)
+        self.assertIn("PLAYWRIGHT_BROWSER", workflow)
+        self.assertIn("Windows Edge smoke", workflow)
 
     def test_ci_audits_every_dependency_profile(self):
         workflow = project_text(".github/workflows/ci.yml")

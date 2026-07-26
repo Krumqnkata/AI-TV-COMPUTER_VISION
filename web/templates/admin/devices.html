@@ -1,8 +1,300 @@
 {% extends "sqladmin/layout.html" %}
 {% block content %}
 {% include "admin/_alerts.html" %}
-{% if can_manage %}<section class="school-card"><header><div><p class="school-eyebrow">Ново устройство</p><h2>Създайте кратък код за сдвояване</h2><p>Кодът е еднократен и изтича автоматично.</p></div></header><form method="post" action="/admin/devices/pair" class="school-form-grid"><label class="school-field">Разбираемо име<input name="label" required placeholder="Екран при главния вход"></label><label class="school-field">Идентификатор<input name="identifier" placeholder="kiosk-main-01"></label><label class="school-field">Тип<select name="device_type"><option value="kiosk">Киоск</option><option value="screen">Екран</option><option value="camera_node">Камерен възел</option><option value="audio_node">Аудио възел</option></select></label><label class="school-field">Зона<input name="zone_id" placeholder="MAIN_ENTRANCE"></label><label class="school-field">Екран<input name="screen_id" placeholder="SCR-ENTRANCE-01"></label><label class="school-field">Валидност на кода<select name="valid_minutes"><option value="15">15 минути</option><option value="30">30 минути</option><option value="60">1 час</option></select></label><label class="school-field">Яркост<input name="display_brightness" type="range" min="10" max="100" value="100"></label><div class="school-form-actions"><button class="school-button school-button-primary" type="submit"><i class="fa-solid fa-link"></i> Създай код</button></div></form></section>{% endif %}
 
-<section class="school-card"><header><div><p class="school-eyebrow">Инвентар</p><h2>Регистрирани устройства</h2></div><span class="school-muted">{{ devices|length }} общо</span></header>{% if devices %}<div class="school-device-grid">{% for device in devices %}<article class="school-device-card"><header><div class="school-device-icon"><i class="fa-solid fa-{{ 'display' if device.device_type in ['screen','kiosk'] else 'microchip' }}"></i></div><div><h3>{{ device.name }}</h3><small>{{ device.identifier }}</small></div><span class="school-status school-status-{{ device.status }}">{{ device.status }}</span></header><dl><div><dt>Зона</dt><dd>{{ device.zone_id or 'Не е зададена' }}</dd></div><div><dt>Екран</dt><dd>{{ device.screen_id or '—' }}</dd></div><div><dt>Версия</dt><dd>{{ device.software_version or 'неизвестна' }}</dd></div><div><dt>Последен контакт</dt><dd>{{ device.last_seen_at.strftime('%d.%m %H:%M:%S') if device.last_seen_at else 'Никога' }}</dd></div></dl>{% if can_manage %}<details><summary>Настройки и действия</summary><form method="post" action="/admin/devices/{{ device.id }}/save" class="school-form-grid school-form-grid-small"><label class="school-field">Име<input name="name" value="{{ device.name }}"></label><label class="school-field">Зона<input name="zone_id" value="{{ device.zone_id or '' }}"></label><label class="school-field">Екран<input name="screen_id" value="{{ device.screen_id or '' }}"></label><label class="school-field">Яркост<input name="display_brightness" type="number" min="10" max="100" value="100"></label><label class="school-check"><input name="active" type="checkbox" {{ 'checked' if device.active else '' }}> Активно</label><button class="school-button" type="submit">Запази</button></form><form method="post" action="/admin/devices/{{ device.id }}/command" class="school-inline-form"><select name="command">{% for code, label in safe_commands.items() %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</select><button class="school-button" type="submit">Изпрати команда</button></form><form method="post" action="/admin/devices/{{ device.id }}/rotate" data-confirm="Старият ключ ще спре веднага. Продължавате ли?"><button class="school-button school-button-danger-ghost" type="submit"><i class="fa-solid fa-rotate"></i> Смени ключа</button></form></details>{% endif %}</article>{% endfor %}</div>{% else %}<div class="school-empty"><i class="fa-solid fa-satellite-dish"></i><h3>Няма сдвоени устройства</h3><p>Създайте кратък код от формата по-горе.</p></div>{% endif %}</section>
-<section class="school-card"><header><div><p class="school-eyebrow">История</p><h2>Последни кодове за сдвояване</h2></div></header><div class="school-table-wrap"><table class="school-table"><thead><tr><th>Име</th><th>Тип</th><th>Изтича</th><th>Състояние</th></tr></thead><tbody>{% for token in tokens %}<tr><td>{{ token.label }}</td><td>{{ token.device_type }}</td><td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td><td>{{ 'Използван' if token.used_at else ('Изтекъл' if token.expires_at < now else 'Активен') if now is defined else ('Използван' if token.used_at else 'Неизползван') }}</td></tr>{% else %}<tr><td colspan="4">Няма кодове.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="school-welcome school-device-welcome">
+  <div>
+    <p class="school-eyebrow">Киоски и информационни екрани</p>
+    <h2>Управлявайте всяко устройство от едно място</h2>
+    <p>Създайте еднократен QR код, изберете физическата точка и после управлявайте режима, съдържанието и тестовете оттук.</p>
+  </div>
+  <div class="school-device-links">
+    <a class="school-button" href="/kiosk" target="_blank"><i class="fa-solid fa-tablet-screen-button"></i> Преглед на киоск</a>
+    <a class="school-button" href="/screen" target="_blank"><i class="fa-solid fa-display"></i> Преглед на екран</a>
+  </div>
+</section>
+
+{% if can_manage %}
+<section class="school-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">Ново PWA устройство</p>
+      <h2>Създайте QR код за сдвояване</h2>
+      <p>Кодът е еднократен. Секретният ключ ще бъде записан директно като защитена cookie и няма да остава в адреса.</p>
+    </div>
+    <span class="school-pill">1 лесна стъпка</span>
+  </header>
+
+  {% if interaction_points %}
+  <form method="post" action="/admin/devices/pair" class="school-form-grid school-device-pair-form">
+    <label class="school-field">
+      Разбираемо име
+      <input name="label" required minlength="2" maxlength="150" placeholder="Киоск — главен вход">
+      <small>Това име ще виждат администраторите.</small>
+    </label>
+
+    <label class="school-field">
+      Какво е устройството?
+      <select name="device_type" required>
+        <option value="kiosk">Интерактивен киоск (камера и бутони)</option>
+        <option value="screen">Информационен екран</option>
+      </select>
+      <small>Работи на Android, Windows и в съвременен браузър.</small>
+    </label>
+
+    <label class="school-field">
+      Къде се намира?
+      <select name="interaction_point_id" required>
+        <option value="">Изберете интерактивна точка…</option>
+        {% for point in interaction_points %}
+        <option value="{{ point.id }}" {{ 'disabled' if not point.screen_id else '' }}>
+          {{ point.name }} — {{ point.zone_id }}{{ ' (липсва screen_id)' if not point.screen_id else ' · ' ~ point.screen_id }}
+        </option>
+        {% endfor %}
+      </select>
+      <small>Зоната и екранът се попълват автоматично от избраната точка.</small>
+    </label>
+
+    <label class="school-field">
+      Валидност на кода
+      <select name="valid_minutes">
+        <option value="15">15 минути</option>
+        <option value="30">30 минути</option>
+        <option value="60">1 час</option>
+      </select>
+    </label>
+
+    <label class="school-field">
+      Яркост
+      <input name="display_brightness" type="range" min="10" max="100" value="100">
+      <small>Начална стойност: 100%.</small>
+    </label>
+
+    <label class="school-field">
+      Личната сесия приключва след
+      <select name="kiosk_idle_seconds">
+        <option value="30">30 секунди</option>
+        <option value="60" selected>1 минута</option>
+        <option value="90">1 минута и 30 секунди</option>
+        <option value="120">2 минути</option>
+      </select>
+    </label>
+
+    <fieldset class="school-fieldset school-screen-settings">
+      <legend>Настройки, използвани когато типът е „Информационен екран“</legend>
+      <div class="school-form-grid school-form-grid-small">
+        <label class="school-field">
+          Режим
+          <select name="screen_mode">
+            <option value="public">Само публична информация</option>
+            <option value="paired">Публична информация + личен резултат от киоск</option>
+          </select>
+        </label>
+        <label class="school-field">
+          Аудитория
+          <input name="screen_audience" value="all" maxlength="100" placeholder="all или 8А">
+        </label>
+        <label class="school-field">
+          Смяна на слайда
+          <select name="screen_rotation_seconds">
+            <option value="8">8 секунди</option>
+            <option value="12" selected>12 секунди</option>
+            <option value="20">20 секунди</option>
+            <option value="30">30 секунди</option>
+          </select>
+        </label>
+      </div>
+      <div class="school-check-grid">
+        <label class="school-check"><input name="show_announcements" type="checkbox" checked> Съобщения</label>
+        <label class="school-check"><input name="show_events" type="checkbox" checked> Събития</label>
+        <label class="school-check"><input name="show_substitutions" type="checkbox" checked> Замествания</label>
+      </div>
+    </fieldset>
+
+    <details class="school-advanced">
+      <summary>Разширена настройка</summary>
+      <label class="school-field">
+        Очакван идентификатор
+        <input name="identifier" maxlength="100" placeholder="Оставете празно при нормално сдвояване">
+        <small>Попълнете само ако кодът трябва да работи за точно определена инсталация.</small>
+      </label>
+    </details>
+
+    <div class="school-form-actions">
+      <button class="school-button school-button-primary" type="submit">
+        <i class="fa-solid fa-qrcode"></i> Създай QR код
+      </button>
+    </div>
+  </form>
+  {% else %}
+  <div class="school-alert school-alert-error">
+    <i class="fa-solid fa-location-dot"></i>
+    Първо създайте активна интерактивна точка със зона и screen_id.
+    <a href="/admin/interaction-point/list">Отвори „Интерактивни точки“</a>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="school-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">Инвентар</p>
+      <h2>Регистрирани устройства</h2>
+      <p>Онлайн състоянието се обновява чрез heartbeat. Командите очакват потвърждение от самото устройство.</p>
+    </div>
+    <span class="school-muted">{{ devices|length }} общо</span>
+  </header>
+
+  {% if devices %}
+  <div class="school-device-grid">
+    {% for device in devices %}
+    {% set cfg = device_configs.get(device.id, {}) %}
+    <article class="school-device-card">
+      <header>
+        <div class="school-device-icon">
+          <i class="fa-solid fa-{{ 'tablet-screen-button' if device.device_type == 'kiosk' else 'display' if device.device_type == 'screen' else 'microchip' }}"></i>
+        </div>
+        <div>
+          <h3>{{ device.name }}</h3>
+          <small>{{ 'Интерактивен киоск' if device.device_type == 'kiosk' else 'Информационен екран' if device.device_type == 'screen' else device.device_type }} · {{ device.identifier }}</small>
+        </div>
+        <span class="school-status school-status-{{ device.status }}">{{ device.status }}</span>
+      </header>
+
+      <dl>
+        <div><dt>Точка</dt><dd>{{ point_names.get(device.interaction_point_id, 'Не е зададена') }}</dd></div>
+        <div><dt>Зона</dt><dd>{{ device.zone_id or 'Не е зададена' }}</dd></div>
+        <div><dt>Екран</dt><dd>{{ device.screen_id or '—' }}</dd></div>
+        <div><dt>Режим</dt><dd>{{ 'Сдвоен' if device.device_type == 'screen' and cfg.get('screen_mode') == 'paired' else 'Публичен' if device.device_type == 'screen' else 'Интерактивен' if device.device_type == 'kiosk' else 'Legacy' }}</dd></div>
+        <div><dt>Версия</dt><dd>{{ device.software_version or 'неизвестна' }}</dd></div>
+        <div><dt>Последен контакт</dt><dd>{{ device.last_seen_at.strftime('%d.%m %H:%M:%S') if device.last_seen_at else 'Никога' }}</dd></div>
+      </dl>
+
+      {% if can_manage %}
+      <details>
+        <summary>Настройки и действия</summary>
+        <form method="post" action="/admin/devices/{{ device.id }}/save" class="school-form-grid school-form-grid-small school-device-settings">
+          <label class="school-field">
+            Име
+            <input name="name" value="{{ device.name }}" required>
+          </label>
+
+          {% if device.device_type in ['kiosk', 'screen'] %}
+          <label class="school-field">
+            Интерактивна точка
+            <select name="interaction_point_id" required>
+              {% for point in interaction_points %}
+              <option value="{{ point.id }}" {{ 'selected' if point.id == device.interaction_point_id else '' }} {{ 'disabled' if not point.screen_id else '' }}>
+                {{ point.name }} — {{ point.zone_id }}{{ ' (липсва screen_id)' if not point.screen_id else '' }}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          {% endif %}
+
+          <label class="school-field">
+            Яркост
+            <input name="display_brightness" type="number" min="10" max="100" value="{{ cfg.get('display_brightness', 100) }}">
+          </label>
+
+          <label class="school-field">
+            Край на личната сесия (сек.)
+            <input name="kiosk_idle_seconds" type="number" min="15" max="600" value="{{ cfg.get('kiosk_idle_seconds', 60) }}">
+          </label>
+
+          {% if device.device_type == 'screen' %}
+          <label class="school-field">
+            Режим на екрана
+            <select name="screen_mode">
+              <option value="public" {{ 'selected' if cfg.get('screen_mode') != 'paired' else '' }}>Само публична информация</option>
+              <option value="paired" {{ 'selected' if cfg.get('screen_mode') == 'paired' else '' }}>Публична + личен резултат от киоск</option>
+            </select>
+          </label>
+          <label class="school-field">
+            Аудитория
+            <input name="screen_audience" value="{{ cfg.get('screen_audience', 'all') }}" maxlength="100">
+          </label>
+          <label class="school-field">
+            Смяна на слайда (сек.)
+            <input name="screen_rotation_seconds" type="number" min="5" max="60" value="{{ cfg.get('screen_rotation_seconds', 12) }}">
+          </label>
+          <div class="school-check-grid school-grid-full">
+            <label class="school-check"><input name="show_announcements" type="checkbox" {{ 'checked' if cfg.get('show_announcements', true) else '' }}> Съобщения</label>
+            <label class="school-check"><input name="show_events" type="checkbox" {{ 'checked' if cfg.get('show_events', true) else '' }}> Събития</label>
+            <label class="school-check"><input name="show_substitutions" type="checkbox" {{ 'checked' if cfg.get('show_substitutions', true) else '' }}> Замествания</label>
+          </div>
+          {% endif %}
+
+          <label class="school-check school-grid-full">
+            <input name="active" type="checkbox" {{ 'checked' if device.active else '' }}> Устройството е активно
+          </label>
+          <button class="school-button school-button-primary" type="submit">Запази настройките</button>
+        </form>
+
+        <form method="post" action="/admin/devices/{{ device.id }}/command" class="school-inline-form school-command-form">
+          <label>
+            Безопасна команда
+            <select name="command">
+              {% for code, label in safe_commands.items() %}
+              {% if device.device_type != 'screen' or code in ['refresh_config', 'enable', 'disable', 'test_screen', 'restart_app'] %}
+              <option value="{{ code }}">{{ label }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </label>
+          <button class="school-button" type="submit">Изпрати и изчакай ACK</button>
+        </form>
+
+        {% if device.device_type not in ['kiosk', 'screen'] %}
+        <form method="post" action="/admin/devices/{{ device.id }}/rotate" data-confirm="Старият ключ ще спре веднага. Продължавате ли?">
+          <button class="school-button school-button-danger-ghost" type="submit">
+            <i class="fa-solid fa-rotate"></i> Смени ключа
+          </button>
+        </form>
+        {% else %}
+        <p class="school-device-hint"><i class="fa-solid fa-shield-halved"></i> За нов PWA ключ създайте нов код и сдвоете устройството отново. Така ключът не се показва и не се копира ръчно.</p>
+        {% endif %}
+      </details>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="school-empty">
+    <i class="fa-solid fa-satellite-dish"></i>
+    <h3>Няма сдвоени устройства</h3>
+    <p>Създайте QR код от формата по-горе и го сканирайте на таблета или компютъра.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="school-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">История</p>
+      <h2>Последни кодове за сдвояване</h2>
+    </div>
+  </header>
+  <div class="school-table-wrap">
+    <table class="school-table">
+      <thead>
+        <tr><th>Име</th><th>Профил</th><th>Точка</th><th>Изтича</th><th>Състояние</th></tr>
+      </thead>
+      <tbody>
+        {% for token in tokens %}
+        <tr>
+          <td>{{ token.label }}</td>
+          <td>{{ 'Киоск' if token.device_type == 'kiosk' else 'Екран' if token.device_type == 'screen' else token.device_type }}</td>
+          <td>{{ point_names.get(token.interaction_point_id, '—') }}</td>
+          <td>{{ token.expires_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>{{ 'Използван' if token.used_at else 'Изтекъл' if token.expires_at < now else 'Активен' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Няма създадени кодове.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

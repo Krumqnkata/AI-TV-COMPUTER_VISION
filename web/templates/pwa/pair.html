@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="bg">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#123b6d">
+    <meta name="description" content="Сдвояване на School AI устройство.">
+    <title>Сдвояване — School AI</title>
+    <link rel="manifest" href="{{ manifest_url }}">
+    <link rel="icon" href="/static/pwa/icons/icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/static/pwa/icons/icon-192.png">
+    <link rel="stylesheet" href="/static/pwa/pwa.css">
+    <script src="/static/pwa/vendor/zxing-browser-0.2.1.min.js" defer></script>
+    <script src="/static/pwa/common.js" defer></script>
+    <script src="/static/pwa/pair.js" defer></script>
+</head>
+<body class="pair-page" data-page="pair" data-profile="{{ profile }}">
+    <div class="offline-banner" data-offline-banner hidden>Няма връзка със сървъра. Проверете училищната мрежа.</div>
+
+    <header class="topbar topbar--light">
+        <a class="brand brand--compact" href="/">
+            <img class="brand__logo" src="/static/favicon.png" alt="">
+            <span><strong>School AI</strong><small>Сдвояване на устройство</small></span>
+        </a>
+        <button class="button button--quiet install-button" type="button" data-install-button hidden>Инсталирай</button>
+    </header>
+
+    <main class="pair-shell">
+        <section class="pair-intro">
+            <p class="eyebrow">Стъпка 1 от 1</p>
+            <h1>Сдвоете <span data-profile-name>{{ "киоска" if profile == "kiosk" else "екрана" }}</span></h1>
+            <p class="lead">Администраторът създава еднократен QR код. Сканирайте го или въведете кода ръчно.</p>
+
+            <nav class="profile-switch" aria-label="Тип на устройството">
+                <a href="/pair?profile=kiosk" class="{{ 'is-active' if profile == 'kiosk' else '' }}">Киоск</a>
+                <a href="/pair?profile=screen" class="{{ 'is-active' if profile == 'screen' else '' }}">Екран</a>
+            </nav>
+
+            <ol class="simple-steps">
+                <li><span>1</span> Влезте в админ панела от доверен компютър.</li>
+                <li><span>2</span> От „Устройства“ изберете точка и създайте код.</li>
+                <li><span>3</span> Покажете QR кода пред камерата на това устройство.</li>
+            </ol>
+        </section>
+
+        <section class="pair-card" aria-labelledby="pair-form-title">
+            <div class="pair-card__heading">
+                <div>
+                    <p class="eyebrow">Сигурно локално сдвояване</p>
+                    <h2 id="pair-form-title">Код от администратора</h2>
+                </div>
+                <span class="security-mark" title="Ключът се пази в защитена HttpOnly cookie">Защитено</span>
+            </div>
+
+            <div class="camera-stage camera-stage--pair" data-pair-camera hidden>
+                <video data-pair-video playsinline muted aria-label="Камера за сканиране на QR код"></video>
+                <div class="scan-frame" aria-hidden="true"></div>
+                <p class="camera-caption">Поставете целия QR код в рамката</p>
+            </div>
+
+            <div class="pair-actions">
+                <button class="button button--secondary button--wide" type="button" data-start-pair-camera>
+                    Сканирай QR код
+                </button>
+                <button class="button button--quiet" type="button" data-stop-pair-camera hidden>Спри камерата</button>
+            </div>
+
+            <div class="divider"><span>или въведете кода</span></div>
+
+            <form data-pair-form novalidate>
+                <label class="field">
+                    <span>Еднократен код</span>
+                    <input
+                        type="text"
+                        name="enrollment_token"
+                        minlength="20"
+                        maxlength="200"
+                        placeholder="enr_..."
+                        autocomplete="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        required
+                    >
+                    <small>Кодът изтича и може да се използва само веднъж.</small>
+                </label>
+
+                <label class="field">
+                    <span>Име на устройството</span>
+                    <input type="text" name="name" minlength="2" maxlength="150" required>
+                    <small>Например „Киоск — главен вход“ или „Екран — фоайе“.</small>
+                </label>
+
+                <details class="technical-details">
+                    <summary>Технически данни</summary>
+                    <label class="field">
+                        <span>Идентификатор</span>
+                        <input type="text" name="identifier" minlength="3" maxlength="100" readonly required>
+                    </label>
+                </details>
+
+                <button class="button button--primary button--wide button--large" type="submit" data-pair-submit>
+                    Сдвои устройството
+                </button>
+            </form>
+
+            <div class="notice" role="status" aria-live="polite" data-pair-status hidden></div>
+        </section>
+    </main>
+</body>
+</html>

@@ -19,7 +19,12 @@ from web.services.runtime import runtime_registry
 from web.services.admin_control import get_setting
 
 
-def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
+def process_badge_detection(
+    request: QRDetectionRequest,
+    db: Session,
+    *,
+    session_timeout_seconds: int | None = None,
+) -> dict:
     now = now_bg()
     token_hash = hash_token(request.badge_token)
     duplicate_reason = runtime_registry.check_duplicate(
@@ -38,6 +43,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
         Badge.status == "active",
     ).first()
     if not badge:
+        event_id = uuid.uuid4().hex
         db.add(SystemEvent(
             event_type="unknown_badge_detected",
             timestamp=now,
@@ -52,7 +58,12 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
             "status": "error",
             "message": "Неразпознат или неактивен бадж",
             "ws_type": "unknown_badge",
-            "ws_data": {"camera_id": request.camera_id, "zone_id": request.zone_id},
+            "ws_data": {
+                "event_id": event_id,
+                "camera_id": request.camera_id,
+                "zone_id": request.zone_id,
+            },
+            "event_id": event_id,
             "zone_id": request.zone_id,
             "screen_id": None,
         }
@@ -76,7 +87,11 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
         interaction_point_id,
         screen_id,
         now,
-        session_timeout_seconds=int(get_setting(db, "sessions.kiosk_idle_seconds")),
+        session_timeout_seconds=(
+            int(session_timeout_seconds)
+            if session_timeout_seconds is not None
+            else int(get_setting(db, "sessions.kiosk_idle_seconds"))
+        ),
     )
     if not acquired:
         return {"status": "ignored", "reason": "kiosk_busy"}
@@ -147,6 +162,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
         messages_text = f"{prefix} {len(delivered_texts)} нови съобщения: " + " | ".join(delivered_texts)
 
     welcome_message = " ".join(part for part in (greeting, messages_text, next_class_text) if part)
+    event_id = uuid.uuid4().hex
     delivery_id = uuid.uuid4().hex
 
     if message_ids:
@@ -170,6 +186,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
             "camera_identifier": request.camera_id,
             "zone_id": request.zone_id,
             "screen_id": screen_id,
+            "event_id": event_id,
             "confidence": request.confidence,
             "delivery_id": delivery_id if message_ids else None,
             "message_ids": message_ids,
@@ -178,6 +195,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
     db.commit()
 
     ws_data = {
+        "event_id": event_id,
         "person_id": person.id,
         "name": person.full_name,
         "role": person.role,
@@ -192,6 +210,7 @@ def process_badge_detection(request: QRDetectionRequest, db: Session) -> dict:
     }
     return {
         "status": "success",
+        "event_id": event_id,
         "person": {"id": person.id, "name": person.full_name, "role": person.role},
         "message": welcome_message,
         "messages_delivered": delivered_texts,

@@ -72,6 +72,21 @@
     });
   });
 
+  all(".school-device-pair-form").forEach((form) => {
+    const typeSelect = one('select[name="device_type"]', form);
+    const screenSettings = one(".school-screen-settings", form);
+    if (!typeSelect || !screenSettings) return;
+    const updateProfileFields = () => {
+      const isScreen = typeSelect.value === "screen";
+      screenSettings.hidden = !isScreen;
+      all("input, select, textarea", screenSettings).forEach((field) => {
+        field.disabled = !isScreen;
+      });
+    };
+    typeSelect.addEventListener("change", updateProfileFields);
+    updateProfileFields();
+  });
+
   const translations = new Map([
     ["Search", "Търси"], ["Actions", "Действия"], ["Export", "Експорт"],
     ["Import CSV", "Импорт CSV"], ["Delete selected items", "Изтрий избраните"],
