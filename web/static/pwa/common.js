@@ -433,6 +433,8 @@
     }
 
     function profileSocket(profile, onMessage) {
+        const OFFLINE_RETRY_MS = 1_000;
+        const LIVENESS_TIMEOUT_MS = 5_000;
         let socket = null;
         let stopped = false;
         let attempt = 0;
@@ -440,28 +442,111 @@
         let pingTimer = null;
         let livenessTimer = null;
 
-        const connect = () => {
-            if (stopped || !navigator.onLine) {
+        const clearConnectionTimers = () => {
+            window.clearInterval(pingTimer);
+            window.clearTimeout(livenessTimer);
+            pingTimer = null;
+            livenessTimer = null;
+        };
+
+        const retireSocket = (reason) => {
+            clearConnectionTimers();
+            const staleSocket = socket;
+            socket = null;
+            if (
+                staleSocket
+                && staleSocket.readyState !== WebSocket.CLOSED
+                && staleSocket.readyState !== WebSocket.CLOSING
+            ) {
+                try {
+                    staleSocket.close(1000, reason);
+                } catch (_error) {
+                    // A browser may reject close() while a failed connection is settling.
+                }
+            }
+        };
+
+        const scheduleReconnect = () => {
+            if (stopped || reconnectTimer !== null) {
                 return;
             }
+            let delay = OFFLINE_RETRY_MS;
+            if (navigator.onLine) {
+                const base = Math.min(30_000, 1_000 * (2 ** Math.min(attempt, 5)));
+                const jitter = Math.floor(Math.random() * 700);
+                delay = base + jitter;
+                attempt += 1;
+            }
+            reconnectTimer = window.setTimeout(() => {
+                reconnectTimer = null;
+                connect();
+            }, delay);
+        };
+
+        const armLivenessTimeout = (currentSocket) => {
+            window.clearTimeout(livenessTimer);
+            livenessTimer = window.setTimeout(() => {
+                if (socket === currentSocket) {
+                    currentSocket.close();
+                }
+            }, LIVENESS_TIMEOUT_MS);
+        };
+
+        const sendPing = (currentSocket) => {
+            if (socket !== currentSocket || currentSocket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            try {
+                currentSocket.send(JSON.stringify({ type: "ping" }));
+                armLivenessTimeout(currentSocket);
+            } catch (_error) {
+                currentSocket.close();
+            }
+        };
+
+        const connect = () => {
+            if (stopped) {
+                return;
+            }
+            if (!navigator.onLine) {
+                setConnectionState("offline", "Офлайн");
+                scheduleReconnect();
+                return;
+            }
+            if (
+                socket
+                && (
+                    socket.readyState === WebSocket.CONNECTING
+                    || socket.readyState === WebSocket.OPEN
+                )
+            ) {
+                return;
+            }
+            socket = null;
             setConnectionState("connecting", "Свързване");
             const protocol = location.protocol === "https:" ? "wss:" : "ws:";
             const currentSocket = new WebSocket(`${protocol}//${location.host}/ws/${profile}`);
             socket = currentSocket;
 
             currentSocket.addEventListener("open", () => {
-                attempt = 0;
-                setConnectionState("online", "Свързан");
+                if (socket !== currentSocket) {
+                    return;
+                }
+                setConnectionState("connecting", "Удостоверяване");
+                window.clearInterval(pingTimer);
                 pingTimer = window.setInterval(() => {
-                    if (currentSocket.readyState === WebSocket.OPEN) {
-                        currentSocket.send(JSON.stringify({ type: "ping" }));
-                    }
+                    sendPing(currentSocket);
                 }, 25_000);
+                armLivenessTimeout(currentSocket);
             });
             currentSocket.addEventListener("message", (event) => {
+                if (socket !== currentSocket) {
+                    return;
+                }
                 try {
                     const message = JSON.parse(event.data);
                     if (message.type === "pong" || message.type === "registered") {
+                        attempt = 0;
                         window.clearTimeout(livenessTimer);
                         livenessTimer = null;
                         setConnectionState("online", "Свързан");
@@ -475,10 +560,7 @@
                 if (socket !== currentSocket) {
                     return;
                 }
-                window.clearInterval(pingTimer);
-                window.clearTimeout(livenessTimer);
-                pingTimer = null;
-                livenessTimer = null;
+                clearConnectionTimers();
                 socket = null;
                 if (stopped) {
                     return;
@@ -487,17 +569,17 @@
                     location.replace(`/pair?profile=${encodeURIComponent(profile)}`);
                     return;
                 }
-                setConnectionState("offline", "Прекъсната връзка");
-                const base = Math.min(30_000, 1_000 * (2 ** Math.min(attempt, 5)));
-                const jitter = Math.floor(Math.random() * 700);
-                attempt += 1;
-                reconnectTimer = window.setTimeout(() => {
-                    reconnectTimer = null;
-                    connect();
-                }, base + jitter);
+                setConnectionState(
+                    "offline",
+                    navigator.onLine ? "Прекъсната връзка" : "Офлайн"
+                );
+                scheduleReconnect();
             });
             currentSocket.addEventListener("error", () => {
-                if (currentSocket.readyState !== WebSocket.CLOSED) {
+                if (
+                    socket === currentSocket
+                    && currentSocket.readyState !== WebSocket.CLOSED
+                ) {
                     currentSocket.close();
                 }
             });
@@ -508,37 +590,20 @@
             reconnect() {
                 window.clearTimeout(reconnectTimer);
                 reconnectTimer = null;
-                if (socket && socket.readyState === WebSocket.OPEN) {
-                    setConnectionState("connecting", "Проверка на връзката");
-                    try {
-                        socket.send(JSON.stringify({ type: "ping" }));
-                        window.clearTimeout(livenessTimer);
-                        const checkedSocket = socket;
-                        livenessTimer = window.setTimeout(() => {
-                            if (socket === checkedSocket) {
-                                checkedSocket.close();
-                            }
-                        }, 3_000);
-                    } catch (_error) {
-                        socket.close();
-                    }
+                attempt = 0;
+                retireSocket("Network changed");
+                if (!navigator.onLine) {
+                    setConnectionState("offline", "Офлайн");
+                    scheduleReconnect();
                     return;
-                }
-                if (socket) {
-                    const staleSocket = socket;
-                    socket = null;
-                    staleSocket.close();
                 }
                 connect();
             },
             stop() {
                 stopped = true;
                 window.clearTimeout(reconnectTimer);
-                window.clearTimeout(livenessTimer);
-                window.clearInterval(pingTimer);
-                if (socket) {
-                    socket.close(1000, "Page closed");
-                }
+                reconnectTimer = null;
+                retireSocket("Page closed");
             },
         };
     }
@@ -619,7 +684,7 @@
                     status: localStorage.getItem(`school-ai-paused:${profile}`) === "1"
                         ? "paused"
                         : "online",
-                    software_version: "pwa-1.1.0",
+                    software_version: "pwa-1.1.1",
                     capabilities: PROFILE_CAPABILITIES[profile],
                     diagnostics,
                 },
@@ -714,7 +779,10 @@
             sendHeartbeat(profile);
             flushDeliveryAcks(profile);
         };
-        const offlineHandler = () => updateOnlineState();
+        const offlineHandler = () => {
+            updateOnlineState();
+            socket.reconnect();
+        };
         window.addEventListener("online", onlineHandler);
         window.addEventListener("offline", offlineHandler);
 

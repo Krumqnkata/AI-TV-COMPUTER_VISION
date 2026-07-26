@@ -1,6 +1,6 @@
 "use strict";
 
-const SHELL_CACHE = "school-ai-shell-v4";
+const SHELL_CACHE = "school-ai-shell-v5";
 const PUBLIC_FEED_CACHE = "school-ai-public-feed-v1";
 const SHELL_ASSETS = [
     "/",

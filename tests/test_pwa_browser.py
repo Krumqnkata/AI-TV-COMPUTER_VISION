@@ -170,6 +170,69 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             time.sleep(0.2)
         self.fail("The browser did not persist and deliver its acknowledgment")
 
+    def _start_connection_trace(self, page):
+        page.evaluate(
+            """
+            () => {
+                const status = document.querySelector("[data-connection-status]");
+                window.__schoolAiConnectionTrace = [];
+                const record = () => {
+                    window.__schoolAiConnectionTrace.push({
+                        at: Math.round(performance.now()),
+                        online: navigator.onLine,
+                        state: status?.dataset.state || null,
+                        label: status?.textContent?.trim() || null,
+                    });
+                    window.__schoolAiConnectionTrace =
+                        window.__schoolAiConnectionTrace.slice(-30);
+                };
+                const observer = new MutationObserver(record);
+                observer.observe(status, {
+                    attributes: true,
+                    childList: true,
+                    subtree: true,
+                });
+                window.__schoolAiConnectionObserver = observer;
+                record();
+            }
+            """
+        )
+
+    def _expect_connected(self, page, *, cycle: int):
+        from playwright.sync_api import expect
+
+        status = page.locator("[data-connection-status]")
+        try:
+            expect(status).to_have_attribute("data-state", "online", timeout=12_000)
+            expect(status).to_contain_text("Свързан")
+        except AssertionError as error:
+            snapshot = page.evaluate(
+                """
+                () => {
+                    const status = document.querySelector("[data-connection-status]");
+                    const banner = document.querySelector("[data-offline-banner]");
+                    return {
+                        navigator_online: navigator.onLine,
+                        state: status?.dataset.state || null,
+                        label: status?.textContent?.trim() || null,
+                        offline_banner_hidden: banner?.hidden ?? null,
+                        trace: window.__schoolAiConnectionTrace || [],
+                    };
+                }
+                """
+            )
+            self.server_log.flush()
+            server_tail = self.server_log_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )[-4_000:]
+            self.fail(
+                f"WebSocket did not recover after offline cycle {cycle}:\n"
+                f"{error}\n"
+                f"Browser snapshot:\n{json.dumps(snapshot, ensure_ascii=False, indent=2)}\n"
+                f"Server log tail:\n{server_tail}"
+            )
+
     def test_pwa_acceptance(self):
         from playwright.sync_api import expect
 
@@ -208,6 +271,7 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             "kiosk",
             self.tokens["kiosk_token"],
         )
+        self._start_connection_trace(kiosk_page)
         kiosk_cookies = kiosk_context.cookies(self.base_url)
         kiosk_secret = next(
             item for item in kiosk_cookies
@@ -233,13 +297,33 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
         expect(kiosk_page.locator("[data-session-view]")).to_be_hidden()
         self.assertEqual(kiosk_page.locator("[data-person-greeting]").text_content(), "")
 
-        kiosk_context.set_offline(True)
-        expect(kiosk_page.locator("[data-offline-banner]")).to_be_visible(timeout=5_000)
-        kiosk_context.set_offline(False)
-        expect(kiosk_page.locator("[data-connection-status]")).to_contain_text(
-            "Свързан",
-            timeout=12_000,
-        )
+        for cycle in range(1, 3):
+            kiosk_context.set_offline(True)
+            kiosk_page.wait_for_function(
+                "() => navigator.onLine === false",
+                timeout=5_000,
+            )
+            expect(kiosk_page.locator("[data-offline-banner]")).to_be_visible(
+                timeout=5_000,
+            )
+            expect(kiosk_page.locator("[data-connection-status]")).to_have_attribute(
+                "data-state",
+                "offline",
+                timeout=5_000,
+            )
+            # Keep the browser offline beyond the first retry. Recovery must not
+            # depend on a single online event after that timer has fired.
+            kiosk_page.wait_for_timeout(1_500)
+
+            kiosk_context.set_offline(False)
+            kiosk_page.wait_for_function(
+                "() => navigator.onLine === true",
+                timeout=5_000,
+            )
+            expect(kiosk_page.locator("[data-offline-banner]")).to_be_hidden(
+                timeout=5_000,
+            )
+            self._expect_connected(kiosk_page, cycle=cycle)
 
         controlled = kiosk_page.evaluate(
             "() => 'serviceWorker' in navigator"
