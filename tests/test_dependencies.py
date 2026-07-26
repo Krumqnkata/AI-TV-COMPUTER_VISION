@@ -48,6 +48,7 @@ class TestDependencyProfiles(unittest.TestCase):
         ai = {line.split("==", 1)[0] for line in package_lines("requirements-ai.txt")}
         dev = {line.split("==", 1)[0] for line in package_lines("requirements-dev.txt")}
         self.assertIn("psycopg[binary]", core)
+        self.assertIn("websockets", core)
         self.assertTrue({"opencv-python", "pygame", "gTTS", "requests"}.issubset(node))
         self.assertTrue({"google-genai", "protobuf", "ollama"}.issubset(ai))
         self.assertTrue({"httpx", "playwright", "requests"}.issubset(dev))
