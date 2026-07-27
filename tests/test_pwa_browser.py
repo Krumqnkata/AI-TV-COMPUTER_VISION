@@ -6,6 +6,7 @@ import json
 import gc
 import os
 import re
+import secrets
 import socket
 import sqlite3
 import subprocess
@@ -35,6 +36,7 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
         cls.database_path = Path(cls.temp_dir.name) / "pwa_e2e.db"
         cls.server_log_path = Path(cls.temp_dir.name) / "server.log"
         cls.environment = os.environ.copy()
+        cls.environment.pop("PWA_E2E_ADMIN_PASSWORD", None)
         cls.environment.update({
             "DATABASE_URL": f"sqlite:///{cls.database_path.as_posix()}",
             "DEVICE_API_KEY": "e2e-legacy-key-with-sufficient-entropy",
@@ -44,6 +46,7 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             "BACKUP_DIR": str(Path(cls.temp_dir.name) / "backups"),
             "PYTHONUNBUFFERED": "1",
         })
+        cls.admin_password = secrets.token_urlsafe(32)
 
         subprocess.run(
             [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -53,14 +56,19 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             capture_output=True,
             text=True,
         )
-        seeded = subprocess.run(
-            [sys.executable, "tests/_pwa_e2e_seed.py"],
-            cwd=PROJECT_ROOT,
-            env=cls.environment,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        seed_environment = cls.environment.copy()
+        seed_environment["PWA_E2E_ADMIN_PASSWORD"] = cls.admin_password
+        try:
+            seeded = subprocess.run(
+                [sys.executable, "tests/_pwa_e2e_seed.py"],
+                cwd=PROJECT_ROOT,
+                env=seed_environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            seed_environment.pop("PWA_E2E_ADMIN_PASSWORD", None)
         if seeded.returncode:
             raise RuntimeError(f"E2E fixture seed failed:\n{seeded.stderr}")
         cls.tokens = json.loads(seeded.stdout.strip().splitlines()[-1])
@@ -309,7 +317,7 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             self.tokens["admin_username"],
         )
         admin_page.locator('input[name="password"]').fill(
-            self.tokens["admin_password"],
+            self.admin_password,
         )
         admin_page.locator('button[type="submit"]').click()
         admin_page.wait_for_load_state("domcontentloaded")

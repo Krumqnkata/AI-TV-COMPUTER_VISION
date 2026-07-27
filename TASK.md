@@ -51,9 +51,9 @@
 
 ### 0. Приключване на текущата repository работа
 
-- [ ] Всички одобрени промени да бъдат commit-нати, публикувани и merge-нати в
+- [x] Всички одобрени промени да бъдат commit-нати, публикувани и merge-нати в
   `main`.
-- [ ] `main` да остане със зелени Python 3.11, Python 3.12 и dependency audit
+- [x] `main` да остане със зелени Python 3.11, Python 3.12 и dependency audit
   проверки.
 - [x] Да се включи branch protection с required CI checks.
 - [x] При промяна на database/deployment кода да се изпълнява и live

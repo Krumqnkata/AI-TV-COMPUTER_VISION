@@ -36,6 +36,10 @@ _EXTRA_FIELDS = (
     "count",
     "error_type",
 )
+_QUIET_CONSOLE_PATH_PREFIXES = (
+    "/static/",
+    "/manifest-",
+)
 
 
 class JsonFormatter(logging.Formatter):
@@ -63,27 +67,96 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
+class ConsoleFormatter(logging.Formatter):
+    """Render compact local-time records without exception text or tracebacks."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = datetime.fromtimestamp(record.created).astimezone().strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        method = getattr(record, "http_method", None)
+        path = getattr(record, "http_path", None)
+        status = getattr(record, "http_status", None)
+        duration_ms = getattr(record, "duration_ms", None)
+        if method and path and status is not None:
+            message = f"{method} {path} -> {status}"
+            if duration_ms is not None:
+                message += f" ({duration_ms} ms)"
+        else:
+            message = record.getMessage()
+
+        context: list[str] = []
+        request_id = getattr(record, "request_id", None) or _request_id.get()
+        device_id = getattr(record, "device_id", None) or _device_id.get()
+        if request_id:
+            context.append(f"req={request_id[:8]}")
+        if device_id:
+            context.append(f"device={device_id}")
+        for field, label in (
+            ("event", "event"),
+            ("job_name", "job"),
+            ("command", "command"),
+            ("count", "count"),
+        ):
+            value = getattr(record, field, None)
+            if value is not None:
+                context.append(f"{label}={value}")
+        error_type = getattr(record, "error_type", None)
+        if not error_type and record.exc_info and record.exc_info[0]:
+            error_type = record.exc_info[0].__name__
+        if error_type:
+            context.append(f"error={error_type}")
+
+        suffix = f" | {' '.join(context)}" if context else ""
+        return (
+            f"[{timestamp}] {record.levelname:<8} {record.name} | "
+            f"{message}{suffix}"
+        )
+
+
+class ConsoleNoiseFilter(logging.Filter):
+    """Hide successful static asset requests only from the local console."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "school_ai.http" or record.levelno >= logging.WARNING:
+            return True
+        status = getattr(record, "http_status", None)
+        if not isinstance(status, int) or not 200 <= status < 400:
+            return True
+        path = str(getattr(record, "http_path", ""))
+        is_quiet_asset = (
+            path.startswith(_QUIET_CONSOLE_PATH_PREFIXES)
+            or path.endswith("-sw.js")
+            or path in {"/favicon.ico", "/favicon.png"}
+        )
+        return not is_quiet_asset
+
+
 def configure_logging(
     *,
     log_dir: Path | None = None,
     stream: bool = True,
 ) -> logging.Logger:
-    """Configure application and Uvicorn loggers once for JSON output."""
+    """Configure readable local output plus a complete JSON Lines log file."""
     global _configured
     if _configured:
         return logging.getLogger("school_ai")
 
-    formatter = JsonFormatter()
+    json_formatter = JsonFormatter()
     handlers: list[logging.Handler] = []
     if stream:
         stream_handler = logging.StreamHandler(sys.stdout)
-        stream_handler.setFormatter(formatter)
+        if Config.LOG_FORMAT == "json":
+            stream_handler.setFormatter(json_formatter)
+        else:
+            stream_handler.setFormatter(ConsoleFormatter())
+            stream_handler.addFilter(ConsoleNoiseFilter())
         handlers.append(stream_handler)
 
     target_dir = (log_dir or Config.LOGS_DIR).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(target_dir / "system.log", encoding="utf-8")
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(json_formatter)
     handlers.append(file_handler)
 
     root = logging.getLogger()

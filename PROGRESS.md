@@ -38,8 +38,10 @@
 - Админ диагностиката обединява heartbeat, текущ/последен WebSocket, camera и
   privacy-safe browser capabilities, command ACK и предупреждения за
   heartbeat, delivery/command ACK и стар backup.
-- Логовете са JSON Lines с request/correlation ID, device ID и редуциран
-  `error_type`; query/body, credentials и лични съобщения не се записват.
+- Пълният файлов и production log е JSON Lines с request/correlation ID,
+  device ID и редуциран `error_type`; локалната конзола е компактна и скрива
+  успешните статични asset заявки. Query/body, credentials и лични съобщения
+  не се записват.
 - `/health/metrics` предоставя агрегирани HTTP error/latency, WebSocket,
   offline-device, QR и delayed-ACK метрики, а Nginx шаблонът го ограничава до
   локален monitoring.
@@ -53,10 +55,12 @@
   restart, backup, restore, lost key и offline tablet.
 - `main` има branch protection със strict required Python, dependency, PWA и
   CodeQL checks, linear history и забранени force push/delete.
+- Operational пакетът и дистанционният application control са merge-нати в
+  `main` чрез PR #10 при зелени required checks.
 
 ## Проверено
 
-- 67 теста се откриват локално: 65 минават, а live PostgreSQL и browser
+- 69 теста се откриват локално: 67 минават, а live PostgreSQL и browser
   acceptance са коректно opt-in и са пропуснати в обикновения SQLite run.
 - Отделният пълен Chromium acceptance минава през pairing, public feed, QR
   session, targeted delivery, remote command wake-up/ACK, storage privacy,

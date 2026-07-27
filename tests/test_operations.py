@@ -9,7 +9,13 @@ import logging
 import unittest
 
 from tools.load_reconnect import run_load_scenario
-from utils.logger import JsonFormatter, bind_request_context, reset_request_context
+from utils.logger import (
+    ConsoleFormatter,
+    ConsoleNoiseFilter,
+    JsonFormatter,
+    bind_request_context,
+    reset_request_context,
+)
 from web.services.metrics import MetricsRegistry
 
 
@@ -39,6 +45,53 @@ class TestStructuredLogging(unittest.TestCase):
         self.assertEqual(payload["error_type"], "RuntimeError")
         self.assertNotIn("secret database password", output.getvalue())
         self.assertNotIn("Traceback", output.getvalue())
+
+    def test_console_formatter_is_compact_and_uses_reduced_context(self):
+        record = logging.makeLogRecord({
+            "name": "school_ai.http",
+            "levelno": logging.INFO,
+            "levelname": "INFO",
+            "msg": "HTTP request completed",
+            "http_method": "GET",
+            "http_path": "/admin/devices",
+            "http_status": 200,
+            "duration_ms": 12.5,
+            "request_id": "1234567890abcdef",
+        })
+
+        output = ConsoleFormatter().format(record)
+
+        self.assertIn("GET /admin/devices -> 200 (12.5 ms)", output)
+        self.assertIn("req=12345678", output)
+        self.assertNotIn('"timestamp"', output)
+
+    def test_console_filter_only_hides_successful_static_assets(self):
+        console_filter = ConsoleNoiseFilter()
+        static_success = logging.makeLogRecord({
+            "name": "school_ai.http",
+            "levelno": logging.INFO,
+            "levelname": "INFO",
+            "http_path": "/static/pwa/kiosk.js",
+            "http_status": 304,
+        })
+        static_failure = logging.makeLogRecord({
+            "name": "school_ai.http",
+            "levelno": logging.INFO,
+            "levelname": "INFO",
+            "http_path": "/static/pwa/kiosk.js",
+            "http_status": 404,
+        })
+        api_success = logging.makeLogRecord({
+            "name": "school_ai.http",
+            "levelno": logging.INFO,
+            "levelname": "INFO",
+            "http_path": "/api/kiosk/config",
+            "http_status": 200,
+        })
+
+        self.assertFalse(console_filter.filter(static_success))
+        self.assertTrue(console_filter.filter(static_failure))
+        self.assertTrue(console_filter.filter(api_success))
 
 
 class TestMetricsRegistry(unittest.TestCase):

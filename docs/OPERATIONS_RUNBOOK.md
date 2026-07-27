@@ -31,6 +31,11 @@ Nginx шаблонът не го публикува към LAN; локален m
 логът включва device identifier, но никога device key, query string, request
 body, QR token, име или лично съобщение.
 
+`LOG_FORMAT=console` (стойността по подразбиране за development) прави stdout
+четим и скрива само успешните статични asset заявки. Файловият лог остава пълен
+JSON Lines. Production шаблонът използва `LOG_FORMAT=json`, за да запази
+структуриран и stdout поток за `journalctl` и monitoring agent.
+
 ```bash
 sudo journalctl -u school-ai.service --since "30 minutes ago"
 sudo tail -n 200 /var/log/school-ai/system.log

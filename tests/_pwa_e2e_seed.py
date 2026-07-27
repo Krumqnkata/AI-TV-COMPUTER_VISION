@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import secrets
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +21,9 @@ from web.services.device_control import create_enrollment_token
 
 
 def main() -> None:
-    admin_password = secrets.token_urlsafe(32)
+    admin_password = os.environ.pop("PWA_E2E_ADMIN_PASSWORD", "")
+    if len(admin_password) < 20:
+        raise RuntimeError("Missing secure E2E administrator fixture password")
     with SessionLocal() as db:
         seed_test_data(db)
         ensure_admin_foundation(db)
@@ -84,7 +86,6 @@ def main() -> None:
             "kiosk_token": kiosk_raw,
             "screen_token": screen_raw,
             "admin_username": actor.username,
-            "admin_password": admin_password,
         }))
 
 
