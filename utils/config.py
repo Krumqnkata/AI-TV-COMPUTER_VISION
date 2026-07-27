@@ -72,6 +72,7 @@ class Config:
     ADMIN_LOGIN_MAX_FAILURES = int(os.getenv("ADMIN_LOGIN_MAX_FAILURES", "5"))
     ADMIN_LOGIN_LOCK_MINUTES = int(os.getenv("ADMIN_LOGIN_LOCK_MINUTES", "15"))
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    LOG_FORMAT = os.getenv("LOG_FORMAT", "console").strip().lower()
 
     # These paths are deployment boundaries. Their contents are managed from
     # the panel, but administrators cannot redirect them to arbitrary folders.

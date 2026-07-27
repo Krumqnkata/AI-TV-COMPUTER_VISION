@@ -95,6 +95,10 @@ Copy-Item .env.example .env.local
 - Prometheus-compatible process metrics:
   `http://localhost:5000/health/metrics`
 
+Локалната конзола използва компактен четим формат и пропуска успешните
+статични asset заявки. Пълният поток остава като JSON Lines в
+`logs/system.log`; `LOG_FORMAT=json` включва JSON и за stdout в production.
+
 Runtime базата, imports и backups не се проследяват от Git. Преди migration на съществуваща инсталация винаги създавайте проверено резервно копие.
 
 Linux production deployment без Docker е описан в
