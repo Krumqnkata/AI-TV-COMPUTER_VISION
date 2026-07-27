@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import Lock
@@ -13,8 +14,14 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from engine.admin_models import BackupRecord, DeviceCommand, DeviceNode
+from engine.admin_models import (
+    BackupRecord,
+    DeviceCommand,
+    DeviceNode,
+    OperationalJobRun,
+)
 from engine.db import DeliveryReceipt, now_bg
+from utils.config import Config
 from web.database import SessionLocal, db_engine, schema_revisions
 from web.services.admin_control import get_setting
 from web.services.device_control import mark_offline_devices
@@ -177,6 +184,7 @@ def collect_operational_warnings(
     offline_seconds = int(get_setting(db, "devices.offline_after_seconds"))
     ack_seconds = int(get_setting(db, "operations.ack_warning_seconds"))
     backup_hours = int(get_setting(db, "operations.backup_warning_hours"))
+    disk_min_free_mb = int(get_setting(db, "operations.disk_min_free_mb"))
 
     heartbeat_threshold = now - timedelta(seconds=offline_seconds)
     devices = db.query(DeviceNode).filter(
@@ -265,4 +273,124 @@ def collect_operational_warnings(
             action_url="/admin/backups",
         ))
 
+    disk = disk_space_report()
+    if disk["available"] and disk["free_mb"] < disk_min_free_mb:
+        warnings.append(OperationalWarning(
+            code="disk-space-low",
+            severity="error",
+            title="Недостатъчно свободно дисково място",
+            detail=(
+                f"Свободни са {disk['free_mb']} MB при backup директорията "
+                f"(праг: {disk_min_free_mb} MB)."
+            ),
+            action_url="/admin/diagnostics",
+        ))
+    elif not disk["available"]:
+        warnings.append(OperationalWarning(
+            code="disk-space-check-failed",
+            severity="warning",
+            title="Дисковото място не може да бъде проверено",
+            detail="Проверете дали backup директорията и нейният родител са достъпни.",
+            action_url="/admin/diagnostics",
+        ))
+
+    if bool(get_setting(db, "operations.maintenance_enabled")):
+        maintenance_hours = int(
+            get_setting(db, "operations.maintenance_warning_hours"),
+        )
+        maintenance_threshold = now - timedelta(hours=maintenance_hours)
+        for job_name, job_label in (
+            ("backup", "автоматичен backup"),
+            ("retention", "retention cleanup"),
+        ):
+            latest = db.query(OperationalJobRun).filter(
+                OperationalJobRun.job_name == job_name,
+            ).order_by(OperationalJobRun.started_at.desc()).first()
+            if latest is None:
+                warnings.append(OperationalWarning(
+                    code=f"maintenance-never-{job_name}",
+                    severity="error",
+                    title=f"Не е изпълняван {job_label}",
+                    detail="Проверете дали school-ai-maintenance.timer е активен.",
+                    action_url="/admin/diagnostics",
+                ))
+                continue
+            if latest.status == "failed":
+                warnings.append(OperationalWarning(
+                    code=f"maintenance-failed-{job_name}",
+                    severity="error",
+                    title=f"Неуспешен {job_label}",
+                    detail=(
+                        f"Последният опит е приключил с {latest.error_type or 'грешка'} "
+                        f"на {latest.started_at.strftime('%d.%m %H:%M:%S')}."
+                    ),
+                    action_url="/admin/diagnostics",
+                ))
+                continue
+            effective_time = latest.finished_at or latest.started_at
+            if latest.status == "running" and latest.started_at < maintenance_threshold:
+                warnings.append(OperationalWarning(
+                    code=f"maintenance-stuck-{job_name}",
+                    severity="error",
+                    title=f"Блокирал {job_label}",
+                    detail=(
+                        f"Задачата е в състояние running повече от "
+                        f"{maintenance_hours} часа."
+                    ),
+                    action_url="/admin/diagnostics",
+                ))
+            elif effective_time < maintenance_threshold:
+                age_hours = max(
+                    0,
+                    int((now - effective_time).total_seconds() // 3600),
+                )
+                warnings.append(OperationalWarning(
+                    code=f"maintenance-stale-{job_name}",
+                    severity="warning",
+                    title=f"Закъснял {job_label}",
+                    detail=(
+                        f"Последното изпълнение е преди {age_hours} часа "
+                        f"(праг: {maintenance_hours} часа)."
+                    ),
+                    action_url="/admin/diagnostics",
+                ))
+
     return warnings
+
+
+def disk_space_report() -> dict[str, Any]:
+    """Inspect the filesystem hosting backups without creating directories."""
+    target = Config.BACKUP_DIR
+    while not target.exists() and target.parent != target:
+        target = target.parent
+    try:
+        usage = shutil.disk_usage(target)
+    except OSError as exc:
+        logger.warning(
+            "Disk space check failed",
+            extra={
+                "event": "operations.disk_check_failed",
+                "error_type": type(exc).__name__,
+            },
+        )
+        return {
+            "available": False,
+            "path": str(Config.BACKUP_DIR),
+            "free_mb": 0,
+            "total_mb": 0,
+            "used_percent": None,
+        }
+    total_mb = usage.total // (1024 * 1024)
+    free_mb = usage.free // (1024 * 1024)
+    used_percent = (
+        round((usage.used / usage.total) * 100, 1)
+        if usage.total
+        else 0.0
+    )
+    return {
+        "available": True,
+        "path": str(Config.BACKUP_DIR),
+        "free_mb": free_mb,
+        "total_mb": total_mb,
+        "used_percent": used_percent,
+    }

@@ -215,6 +215,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .school-command-form { align-items: flex-end; margin: 12px 0; }
 .school-command-form label { display: grid; flex: 1; gap: 6px; color: var(--school-muted); font-size: 11px; font-weight: 800; }
 .school-command-form select { width: 100%; }
+.school-command-history { margin: 12px 0 16px; padding: 12px; border: 1px solid var(--school-line); border-radius: 14px; background: var(--school-canvas); }
+.school-command-history h4 { margin: 0 0 8px; font-size: 13px; }
+.school-command-history ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.school-command-history li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.school-command-history li div { display: grid; gap: 2px; }
+.school-command-history small { color: var(--school-muted); }
 .school-device-hint { margin: 12px 0 0; padding: 10px 12px; border-radius: 9px; color: #475569; background: #eef4fb; font-size: 11px; line-height: 1.5; }
 .school-device-hint i { margin-right: 5px; color: var(--school-blue); }
 .school-warning-list { display: grid; gap: 10px; }

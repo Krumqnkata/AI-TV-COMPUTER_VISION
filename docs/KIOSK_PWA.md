@@ -127,13 +127,18 @@ Public screen връзките се филтрират и изобщо не по
 - delivery ACK се записва като минимален IndexedDB запис само с delivery ID и
   message IDs, после се повтаря след връщане на мрежата;
 - duplicate `event_id` не се показва два пъти;
-- heartbeat е на 30 секунди, command polling — на 10 секунди;
+- heartbeat е на 30 секунди, command polling — на 10 секунди, а нова команда
+  събужда точния свързан device веднага по WebSocket;
 - нов `config_version` от heartbeat автоматично презарежда профила до 30
   секунди след запис от админ панела;
 - `refresh_config` презарежда клиента, така че новите zone/screen/mode настройки
   да важат и за WebSocket регистрацията;
 - `disable`/`enable` остава локално устойчиво през restart и се отчита чрез
   heartbeat;
+- `request_diagnostics` изпраща незабавен privacy-safe heartbeat snapshot;
+- `check_connectivity` проверява application liveness;
+- `update_app` и `clear_pwa_cache` обновяват само локалния PWA shell и
+  презареждат след ACK;
 - произволни shell/OS команди не се поддържат.
 
 Heartbeat изпраща и малък технически diagnostics snapshot за админ страницата:

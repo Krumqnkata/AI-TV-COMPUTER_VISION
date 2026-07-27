@@ -33,10 +33,11 @@ class TestPostgreSQLSchemaCompilation(unittest.TestCase):
         Base.metadata.create_all(engine)
 
         ddl = "\n".join(statements)
-        self.assertEqual(len(Base.metadata.tables), 38)
+        self.assertEqual(len(Base.metadata.tables), 39)
         self.assertIn("CREATE TABLE persons", ddl)
         self.assertIn("CREATE TABLE staff_accounts", ddl)
         self.assertIn("CREATE TABLE device_nodes", ddl)
+        self.assertIn("CREATE TABLE operational_job_runs", ddl)
 
 
 @unittest.skipUnless(

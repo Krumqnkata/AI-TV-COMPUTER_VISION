@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from utils.config import Config
+from utils.logger import configure_logging
 from web.admin_panel import setup_admin
 from web.database import SessionLocal, assert_schema_current, db_engine, get_db
 from web.routers.admin_api import router as admin_api_router
@@ -27,6 +28,7 @@ from web.services.runtime import runtime_registry
 
 
 ensure_runtime_secrets()
+configure_logging()
 
 
 @asynccontextmanager
@@ -87,4 +89,6 @@ def run_server(host=None, port=None):
         host=host or Config.SERVER_HOST,
         port=port or Config.SERVER_PORT,
         log_level="info",
+        log_config=None,
+        access_log=False,
     )

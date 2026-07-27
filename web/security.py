@@ -1,5 +1,9 @@
 import hmac
+import logging
+import re
 import secrets
+import time
+import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
@@ -11,6 +15,7 @@ from engine.csrf import CSRF_COOKIE_NAME, generate_csrf_token, verify_csrf_token
 from engine.admin_models import StaffAccount
 from engine.db import Person
 from utils.config import Config
+from utils.logger import bind_request_context, reset_request_context
 from web.database import get_db
 from web.services.admin_control import (
     has_permission,
@@ -18,6 +23,7 @@ from web.services.admin_control import (
     provision_staff_from_person,
 )
 from web.services.device_control import DeviceContext, authenticate_device
+from web.services.metrics import metrics_registry
 
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -25,6 +31,9 @@ PWA_PROFILE_COOKIES = {
     "kiosk": ("school_ai_kiosk_device_id", "school_ai_kiosk_device_key"),
     "screen": ("school_ai_screen_device_id", "school_ai_screen_device_key"),
 }
+_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
+_DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
+request_logger = logging.getLogger("school_ai.http")
 
 
 def verify_device_key_value(value: str | None) -> bool:
@@ -211,6 +220,71 @@ def install_security_middleware(app) -> None:
                 samesite="strict",
             )
         return response
+
+    @app.middleware("http")
+    async def request_observability(request: Request, call_next):
+        supplied_request_id = request.headers.get("x-request-id", "")
+        request_id = (
+            supplied_request_id
+            if _REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
+            else uuid.uuid4().hex
+        )
+        supplied_device_id = request.headers.get("x-device-id")
+        profile = (
+            "kiosk"
+            if (
+                request.url.path == "/kiosk"
+                or request.url.path.startswith("/api/kiosk/")
+            )
+            else "screen"
+            if (
+                request.url.path == "/screen"
+                or request.url.path.startswith("/api/screen/")
+            )
+            else None
+        )
+        if not supplied_device_id and profile:
+            identifier_cookie, _key_cookie = PWA_PROFILE_COOKIES[profile]
+            supplied_device_id = request.cookies.get(identifier_cookie)
+        device_id = (
+            supplied_device_id
+            if supplied_device_id and _DEVICE_ID_PATTERN.fullmatch(supplied_device_id)
+            else None
+        )
+        tokens = bind_request_context(request_id, device_id)
+        started = time.perf_counter()
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as exc:
+            request_logger.error(
+                "HTTP request failed",
+                extra={
+                    "event": "http.request.failed",
+                    "http_method": request.method,
+                    "http_path": request.url.path,
+                    "http_status": 500,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
+        finally:
+            duration = time.perf_counter() - started
+            metrics_registry.record_http(request.method, status_code, duration)
+            request_logger.info(
+                "HTTP request completed",
+                extra={
+                    "event": "http.request.completed",
+                    "http_method": request.method,
+                    "http_path": request.url.path,
+                    "http_status": status_code,
+                    "duration_ms": round(duration * 1000, 2),
+                },
+            )
+            reset_request_context(tokens)
 
 
 def ensure_runtime_secrets() -> None:

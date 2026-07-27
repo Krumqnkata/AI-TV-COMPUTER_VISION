@@ -236,15 +236,31 @@
           <label>
             Безопасна команда
             <select name="command">
-              {% for code, label in safe_commands.items() %}
-              {% if device.device_type != 'screen' or code in ['refresh_config', 'enable', 'disable', 'test_screen', 'restart_app'] %}
+              {% for code, label in available_commands[device.id].items() %}
               <option value="{{ code }}">{{ label }}</option>
-              {% endif %}
               {% endfor %}
             </select>
           </label>
           <button class="school-button" type="submit">Изпрати и изчакай ACK</button>
         </form>
+
+        {% if command_history.get(device.id) %}
+        <div class="school-command-history">
+          <h4>Последни дистанционни команди</h4>
+          <ul>
+            {% for row in command_history[device.id] %}
+            {% set item = row.command %}
+            <li>
+              <div>
+                <strong>{{ row.label }}</strong>
+                <small>№{{ item.id }} · {{ item.created_at.strftime('%d.%m %H:%M:%S') }}</small>
+              </div>
+              <span class="school-status school-status-{{ 'online' if item.status == 'acknowledged' else 'error' if item.status == 'failed' else 'warning' }}">{{ item.status }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
 
         {% if device.device_type not in ['kiosk', 'screen'] %}
         <form method="post" action="/admin/devices/{{ device.id }}/rotate" data-confirm="Старият ключ ще спре веднага. Продължавате ли?">

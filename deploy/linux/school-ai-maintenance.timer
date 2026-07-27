@@ -1,0 +1,11 @@
+[Unit]
+Description=Run School AI backup and retention maintenance daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+Unit=school-ai-maintenance.service
+
+[Install]
+WantedBy=timers.target

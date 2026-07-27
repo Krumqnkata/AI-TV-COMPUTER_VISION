@@ -68,6 +68,8 @@ class TestLinuxDeploymentContracts(unittest.TestCase):
         self.assertIn("proxy_set_header Connection $connection_upgrade", nginx)
         self.assertIn("proxy_set_header X-Forwarded-Proto $scheme", nginx)
         self.assertIn("listen 443 ssl", nginx)
+        self.assertIn("location = /health/metrics", nginx)
+        self.assertIn("deny all", nginx)
 
     def test_production_env_binds_application_to_loopback(self):
         environment = project_text("deploy/linux/env.production.example")
@@ -76,6 +78,20 @@ class TestLinuxDeploymentContracts(unittest.TestCase):
         self.assertIn("COOKIE_SECURE=true", environment)
         self.assertIn("DATABASE_URL=postgresql+psycopg://school_ai_app:", environment)
         self.assertNotIn("DATABASE_URL=postgresql+psycopg://postgres:", environment)
+
+    def test_maintenance_timer_is_persistent_audited_and_unprivileged(self):
+        service = project_text("deploy/linux/school-ai-maintenance.service")
+        timer = project_text("deploy/linux/school-ai-maintenance.timer")
+        command = project_text("tools/run_maintenance.py")
+
+        self.assertIn("User=school-ai", service)
+        self.assertNotIn("User=root", service)
+        self.assertIn("tools/run_maintenance.py --job all", service)
+        self.assertIn("NoNewPrivileges=true", service)
+        self.assertIn("OnCalendar=daily", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertIn("RandomizedDelaySec=30m", timer)
+        self.assertIn("assert_schema_current()", command)
 
 
 class TestRestoreSafetyContracts(unittest.TestCase):

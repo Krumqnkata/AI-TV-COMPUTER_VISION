@@ -76,16 +76,30 @@ sudo -u school-ai /opt/school-ai/.venv/bin/python \
 
 ## 4. systemd
 
-Инсталирайте и стартирайте service файла:
+Инсталирайте application service-а и audited maintenance timer-а:
 
 ```bash
 sudo install -m 0644 \
   /opt/school-ai/deploy/linux/school-ai.service \
   /etc/systemd/system/school-ai.service
+sudo install -m 0644 \
+  /opt/school-ai/deploy/linux/school-ai-maintenance.service \
+  /etc/systemd/system/school-ai-maintenance.service
+sudo install -m 0644 \
+  /opt/school-ai/deploy/linux/school-ai-maintenance.timer \
+  /etc/systemd/system/school-ai-maintenance.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now school-ai.service
+sudo systemctl enable --now school-ai-maintenance.timer
+sudo systemctl start school-ai-maintenance.service
 sudo systemctl status school-ai.service
+sudo systemctl status school-ai-maintenance.service
+sudo systemctl list-timers school-ai-maintenance.timer
 ```
+
+След първото успешно изпълнение включете **Настройки → Наблюдение → Следене
+на автоматичната поддръжка**. Така липсващото, неуспешното или закъснялото
+изпълнение се показва като operational warning.
 
 Логовете се виждат с:
 
@@ -143,6 +157,7 @@ sudo ufw enable
 ```bash
 curl --fail http://127.0.0.1:5000/health/live
 curl --fail http://127.0.0.1:5000/health/ready
+curl --fail http://127.0.0.1:5000/health/metrics
 curl --fail https://school-ai.example.edu/health/ready
 sudo -u school-ai /opt/school-ai/.venv/bin/python -m alembic current
 ```
@@ -186,3 +201,7 @@ sudo systemctl status school-ai.service
 Текущият deployment е умишлено с един application process. Не добавяйте
 няколко Uvicorn workers преди WebSocket connection/delivery state да бъде
 изнесено в Redis.
+
+Ежедневните проверки, restart/backup/restore процедурите, lost device key и
+offline tablet действията са в
+[`OPERATIONS_RUNBOOK.md`](OPERATIONS_RUNBOOK.md).

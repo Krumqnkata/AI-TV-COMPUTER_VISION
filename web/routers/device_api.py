@@ -20,6 +20,7 @@ from web.services.admin_control import get_setting
 from web.services.badges import process_badge_detection
 from web.services.delivery import acknowledge_delivery
 from web.services.device_control import DeviceContext, context_allows_scope
+from web.services.metrics import metrics_registry
 from web.services.runtime import runtime_registry
 
 
@@ -55,6 +56,7 @@ async def detect_qr(
 ):
     _require_scope(device, zone_id=request.zone_id, camera_identifier=request.camera_id)
     result = process_badge_detection(request, db)
+    metrics_registry.record_qr_result(str(result.get("status", "error")))
     ws_type = result.pop("ws_type", None)
     ws_data = result.pop("ws_data", None)
     zone_id = result.pop("zone_id", request.zone_id)

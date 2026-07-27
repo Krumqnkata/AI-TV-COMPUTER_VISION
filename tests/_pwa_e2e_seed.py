@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sys
 from pathlib import Path
 
@@ -10,7 +11,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from engine.admin_models import Announcement, StaffAccount
+from engine.admin_models import Announcement
+from engine.auth import get_password_hash
 from engine.db import InteractionPoint, Person, now_bg
 from tests.fixtures import seed_test_data
 from web.database import SessionLocal
@@ -19,13 +21,15 @@ from web.services.device_control import create_enrollment_token
 
 
 def main() -> None:
+    admin_password = secrets.token_urlsafe(32)
     with SessionLocal() as db:
         seed_test_data(db)
         ensure_admin_foundation(db)
         admin_person = db.query(Person).filter(Person.role == "admin").one()
-        provision_staff_from_person(db, admin_person)
+        admin_person.password_hash = get_password_hash(admin_password)
+        actor = provision_staff_from_person(db, admin_person)
+        actor.password_hash = admin_person.password_hash
         db.commit()
-        actor = db.query(StaffAccount).order_by(StaffAccount.id).first()
         point = db.query(InteractionPoint).filter(
             InteractionPoint.name == "Главен вход - Екран",
         ).one()
@@ -79,6 +83,8 @@ def main() -> None:
         print(json.dumps({
             "kiosk_token": kiosk_raw,
             "screen_token": screen_raw,
+            "admin_username": actor.username,
+            "admin_password": admin_password,
         }))
 
 

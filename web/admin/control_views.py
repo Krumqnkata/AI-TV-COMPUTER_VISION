@@ -19,6 +19,7 @@ from engine.admin_models import (
     DeviceCommand,
     DeviceEnrollmentToken,
     DeviceNode,
+    OperationalJobRun,
     ScheduleImportJob,
     StaffAccount,
     StaffRole,
@@ -60,6 +61,7 @@ from web.services.backups import (
 )
 from web.services.device_control import (
     SAFE_COMMANDS,
+    available_safe_commands,
     create_enrollment_token,
     mark_offline_devices,
     parse_device_diagnostics,
@@ -69,9 +71,11 @@ from web.services.device_control import (
 from web.services.imports import execute_schedule_import, preview_schedule_import, timetable_csv_template
 from web.services.operations import (
     collect_operational_warnings,
+    disk_space_report,
     operations_monitor,
     readiness_report,
 )
+from web.services.metrics import metrics_registry, operational_metric_values
 from web.services.privacy import execute_retention_cleanup, retention_preview
 
 
@@ -208,6 +212,19 @@ class DiagnosticsView(PermissionedBaseView):
                 })
 
             health = readiness_report()
+            process_metrics = metrics_registry.snapshot()
+            operational_metrics = operational_metric_values(db)
+            request_count = int(process_metrics["http_duration_count"])
+            average_latency_ms = (
+                round(
+                    float(process_metrics["http_duration_sum"])
+                    / request_count
+                    * 1000,
+                    2,
+                )
+                if request_count
+                else 0
+            )
             return await self.templates.TemplateResponse(
                 request,
                 "admin/diagnostics.html",
@@ -219,6 +236,13 @@ class DiagnosticsView(PermissionedBaseView):
                     "warnings": warnings,
                     "device_rows": device_rows,
                     "websocket_connections": websocket_connections,
+                    "process_metrics": process_metrics,
+                    "operational_metrics": operational_metrics,
+                    "average_latency_ms": average_latency_ms,
+                    "disk": disk_space_report(),
+                    "job_runs": db.query(OperationalJobRun).order_by(
+                        OperationalJobRun.started_at.desc(),
+                    ).limit(10).all(),
                     "refresh_seconds": int(get_setting(db, "dashboard.refresh_seconds")),
                 },
             )
@@ -456,6 +480,16 @@ class DeviceManagementView(PermissionedBaseView):
                 point for point in all_points
                 if point.active
             ]
+            command_history: dict[int, list[dict]] = {}
+            for command in db.query(DeviceCommand).order_by(
+                DeviceCommand.created_at.desc(),
+            ).limit(100).all():
+                rows = command_history.setdefault(command.device_id, [])
+                if len(rows) < 5:
+                    rows.append({
+                        "command": command,
+                        "label": SAFE_COMMANDS.get(command.command, command.command),
+                    })
             return await self.templates.TemplateResponse(request, "admin/devices.html", {
                 "title": "Устройства",
                 "subtitle": "Сдвояване и управление на киоски и информационни екрани",
@@ -464,7 +498,11 @@ class DeviceManagementView(PermissionedBaseView):
                 "interaction_points": points,
                 "point_names": {point.id: point.name for point in all_points},
                 "device_configs": device_configs,
-                "safe_commands": SAFE_COMMANDS,
+                "available_commands": {
+                    device.id: available_safe_commands(device)
+                    for device in devices
+                },
+                "command_history": command_history,
                 "can_manage": session_has_permission(request, "devices.manage"),
                 "now": now_bg(),
                 "ok": request.query_params.get("ok"),
@@ -629,7 +667,22 @@ class DeviceManagementView(PermissionedBaseView):
                 item = queue_command(db, device, str(form.get("command", "")), actor, ip_address=request_ip(request))
             except ValueError as exc:
                 return _redirect("/admin/devices", error=str(exc))
-        return _redirect("/admin/devices", ok=f"Командата №{item.id} чака потвърждение от устройството.")
+            delivered = await connection_manager.send_to_device(
+                {
+                    "type": "device_command_available",
+                    "data": {"command_id": item.id},
+                },
+                device.identifier,
+            )
+        delivery_note = (
+            "Устройството е известено веднага по WebSocket."
+            if delivered
+            else "Командата ще бъде взета при следващото polling свързване."
+        )
+        return _redirect(
+            "/admin/devices",
+            ok=f"Командата №{item.id} чака ACK. {delivery_note}",
+        )
 
     @expose("/devices/{device_id}/rotate", methods=["POST"])
     async def rotate(self, request: Request):

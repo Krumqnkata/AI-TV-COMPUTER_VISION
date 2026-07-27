@@ -8,7 +8,7 @@ GitHub Actions изпълнява следните проверки при pull 
 - `compileall` и `pip check`;
 - `pip-audit` за server, development, optional AI и QR-node профилите;
 - пълен Chromium PWA acceptance за pairing, QR session, targeted delivery,
-  ACK, idle cleanup, reconnect и Service Worker;
+  remote command wake-up/ACK, idle cleanup, reconnect и Service Worker;
 - smoke проверки с Firefox, WebKit и Microsoft Edge върху Windows runner;
 - CodeQL Python анализ с `security-extended` queries;
 - седмични Dependabot проверки за Python и GitHub Actions.
@@ -19,7 +19,7 @@ Workflow файловете са:
 - `.github/workflows/codeql.yml`;
 - `.github/dependabot.yml`.
 
-След първото успешно изпълнение защитете `main` в GitHub и изисквайте:
+`main` е защитен в GitHub със strict status checks и изисква:
 
 - `Tests / Python 3.11`;
 - `Tests / Python 3.12`;
@@ -29,6 +29,11 @@ Workflow файловете са:
 - `PWA / WebKit smoke`;
 - `PWA / Windows Edge smoke`;
 - `CodeQL / Python`, когато repository visibility позволява CodeQL upload.
+
+Правилото важи и за администратори, изисква linear history и забранява force
+push и branch deletion. Не е включен изкуствен second-reviewer праг, защото
+repository workflow-ът е с един поддържащ; всички промени все пак минават през
+feature branch и зелени required checks.
 
 Локалният еквивалент е:
 

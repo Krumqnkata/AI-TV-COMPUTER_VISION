@@ -1,0 +1,33 @@
+[Unit]
+Description=School AI audited backup and retention maintenance
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=school-ai
+Group=school-ai
+WorkingDirectory=/opt/school-ai
+EnvironmentFile=/opt/school-ai/.env.local
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/school-ai/.venv/bin/python /opt/school-ai/tools/run_maintenance.py --job all
+UMask=0077
+
+StateDirectory=school-ai
+StateDirectoryMode=0750
+LogsDirectory=school-ai
+LogsDirectoryMode=0750
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/school-ai /var/log/school-ai

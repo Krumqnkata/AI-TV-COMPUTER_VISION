@@ -133,7 +133,7 @@ def _run_postgres_tool(command: list[str], url: URL) -> subprocess.CompletedProc
 
 def _record_backup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     destination: Path,
     database_type: str,
     *,
@@ -146,7 +146,7 @@ def _record_backup(
         status="verified",
         size_bytes=destination.stat().st_size,
         sha256=_sha256(destination),
-        created_by_staff_id=actor.id,
+        created_by_staff_id=actor.id if actor else None,
         verified_at=datetime.now(),
     )
     db.add(record)
@@ -171,7 +171,7 @@ def _record_backup(
 
 def _create_sqlite_backup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     url: URL,
     *,
     ip_address: str | None,
@@ -190,7 +190,7 @@ def _create_sqlite_backup(
 
 def _create_postgresql_backup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     url: URL,
     *,
     ip_address: str | None,
@@ -218,7 +218,7 @@ def _create_postgresql_backup(
 
 def create_database_backup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     *,
     ip_address: str | None = None,
 ) -> BackupRecord:
@@ -234,7 +234,7 @@ def create_database_backup(
 
 def create_sqlite_backup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     *,
     ip_address: str | None = None,
 ) -> BackupRecord:

@@ -125,6 +125,16 @@ class ConnectionManager:
             targets = [c for c in self._connections.values() if c.screen_id == screen_id]
         return await self._send(targets, payload)
 
+    async def send_to_device(self, payload: dict, device_id: str) -> int:
+        """Send only to connections authenticated as one managed device."""
+        async with self._lock:
+            targets = [
+                connection
+                for connection in self._connections.values()
+                if connection.device_id == device_id
+            ]
+        return await self._send(targets, payload)
+
     async def broadcast_system(self, payload: dict) -> int:
         async with self._lock:
             targets = list(self._connections.values())
