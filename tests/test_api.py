@@ -4,7 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,7 +34,25 @@ alembic_command.upgrade(_test_migration_config, "head")
 
 
 from engine.auth import get_password_hash  # noqa: E402
-from engine.admin_models import AdminAuditEvent, Announcement, BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, OperationalJobRun, StaffAccount, StaffRole, SystemSetting  # noqa: E402
+from engine.admin_models import (  # noqa: E402
+    AdminAuditEvent,
+    Announcement,
+    BackupRecord,
+    Club,
+    DeviceCommand,
+    DeviceNode,
+    DirectoryEntry,
+    Duty,
+    EncryptedSecret,
+    OperationalJobRun,
+    Reminder,
+    Room,
+    SchoolTask,
+    StaffAccount,
+    StaffRole,
+    Substitution,
+    SystemSetting,
+)
 from engine.db import Badge, Base, DeliveryReceipt, InteractionPoint, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
 from tests.fixtures import seed_test_data  # noqa: E402
 from web.database import SessionLocal, assert_schema_current, db_engine  # noqa: E402
@@ -727,6 +745,197 @@ class TestSchoolAIAPI(unittest.TestCase):
         response = self.client.post("/api/voice_command", headers=DEVICE_HEADERS, json=payload)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["intent"], "check_room")
+
+    def test_rule_assistant_answers_broad_managed_school_context(self):
+        anton = self._person("Антон Иванов")
+        georgi = self._person("Георги Петров")
+        maria = self._person("Мария Димитрова")
+        room = Room(
+            code="RULE-304",
+            name="Лаборатория по роботика",
+            floor="трети етаж",
+            wing="дясно крило",
+            directions="Лабораторията е на третия етаж, дясно от стълбите.",
+            active=True,
+        )
+        self.db.add(room)
+        self.db.flush()
+        club = Club(
+            name="Клуб по роботика — rule test",
+            description="Практически занимания по роботика.",
+            schedule_text="сряда от 14:30 ч.",
+            room_id=room.id,
+            advisor_person_id=maria.id,
+            active=True,
+        )
+        substitution = Substitution(
+            date=now_bg().date(),
+            period=3,
+            class_name="9Б",
+            subject="Информатика",
+            original_teacher_id=maria.id,
+            replacement_teacher_id=maria.id,
+            room_id=room.id,
+            notes="Промяна само за теста.",
+        )
+        duty = Duty(
+            person_id=anton.id,
+            date=now_bg().date(),
+            start_time=time(10, 35),
+            end_time=time(10, 50),
+            location="Главен вход",
+        )
+        task = SchoolTask(
+            title="Проект по информатика — rule test",
+            description="Предаване през училищната система.",
+            due_at=now_bg() + timedelta(days=2),
+            audience="9Б",
+            assigned_person_id=anton.id,
+            status="active",
+        )
+        other_task = SchoolTask(
+            title="Чужда лична задача — rule test",
+            assigned_person_id=georgi.id,
+            status="active",
+        )
+        reminder = Reminder(
+            person_id=anton.id,
+            text="Носи спортен екип — rule test.",
+            remind_at=now_bg() + timedelta(hours=2),
+            status="pending",
+        )
+        other_reminder = Reminder(
+            person_id=georgi.id,
+            text="Чуждо лично напомняне — rule test.",
+            remind_at=now_bg() + timedelta(hours=2),
+            status="pending",
+        )
+        faq = DirectoryEntry(
+            kind="faq",
+            name="Работно време на библиотеката",
+            value="Библиотеката отваря в 08:00 ч.",
+            details="Кога отваря библиотеката; час за отваряне.",
+            sort_order=1,
+            active=True,
+        )
+        visible_announcement = Announcement(
+            title="Новина за 9Б — rule test",
+            body="Утре класът участва в училищната инициатива.",
+            audience="9Б",
+            priority="normal",
+            publish_from=now_bg() - timedelta(minutes=1),
+            published=True,
+        )
+        hidden_announcement = Announcement(
+            title="Новина само за 10А — rule test",
+            body="Това съдържание не е за активния профил.",
+            audience="10А",
+            priority="normal",
+            publish_from=now_bg() - timedelta(minutes=1),
+            published=True,
+        )
+        created = [
+            room,
+            club,
+            substitution,
+            duty,
+            task,
+            other_task,
+            reminder,
+            other_reminder,
+            faq,
+            visible_announcement,
+            hidden_announcement,
+        ]
+        self.db.add_all(created[1:])
+        self.db.commit()
+        created_ids = [(type(item), item.id) for item in created]
+
+        self._scan()
+
+        def ask(text_query: str) -> dict:
+            response = self.client.post(
+                "/api/voice_command",
+                headers=DEVICE_HEADERS,
+                json={
+                    "person_id": anton.id,
+                    "text_query": text_query,
+                    "zone_id": "MAIN_ENTRANCE",
+                    "screen_id": "SCR-ENTRANCE-01",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        try:
+            timetable = ask("Къде ми е математиката?")
+            self.assertEqual(timetable["intent"], "check_timetable")
+            self.assertIn("Кабинет 201", timetable["response"])
+
+            subject_alias = ask("математика")
+            self.assertEqual(subject_alias["intent"], "check_timetable")
+            self.assertIn("Кабинет 201", subject_alias["response"])
+
+            tasks = ask("Какви задачи имам?")
+            self.assertEqual(tasks["intent"], "check_tasks")
+            self.assertIn(task.title, tasks["response"])
+            self.assertNotIn(other_task.title, tasks["response"])
+
+            reminders = ask("Покажи напомнянията ми")
+            self.assertEqual(reminders["intent"], "check_reminders")
+            self.assertIn("спортен екип", reminders["response"])
+            self.assertNotIn("Чуждо лично", reminders["response"])
+
+            duties = ask("Къде съм дежурен днес?")
+            self.assertEqual(duties["intent"], "check_duties")
+            self.assertIn("Главен вход", duties["response"])
+
+            substitutions = ask("Има ли замествания днес?")
+            self.assertEqual(
+                substitutions["intent"],
+                "check_substitutions",
+            )
+            self.assertIn("9Б, 3. час", substitutions["response"])
+
+            clubs = ask("Какви клубове има?")
+            self.assertEqual(clubs["intent"], "show_clubs")
+            self.assertIn(club.name, clubs["response"])
+
+            announcements = ask("Какви училищни новини има?")
+            self.assertEqual(
+                announcements["intent"],
+                "show_announcements",
+            )
+            self.assertIn(
+                visible_announcement.title,
+                announcements["response"],
+            )
+            self.assertNotIn(
+                hidden_announcement.title,
+                announcements["response"],
+            )
+
+            directory = ask("Кога отваря библиотеката?")
+            self.assertEqual(directory["intent"], "directory_lookup")
+            self.assertIn("08:00", directory["response"])
+
+            self.db.expire_all()
+            assistant_audit = "\n".join(
+                item.metadata_json or ""
+                for item in self.db.query(SystemEvent).filter(
+                    SystemEvent.event_type == "question_asked",
+                    SystemEvent.person_id == anton.id,
+                )
+            )
+            self.assertNotIn(task.title, assistant_audit)
+            self.assertNotIn(reminder.text, assistant_audit)
+        finally:
+            self.db.expire_all()
+            for model, item_id in reversed(created_ids):
+                self.db.query(model).filter(model.id == item_id).delete(
+                    synchronize_session=False,
+                )
+            self.db.commit()
 
     def test_csrf_requires_header_for_browser_mutations(self):
         page = self.client.get("/")

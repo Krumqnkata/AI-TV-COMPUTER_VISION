@@ -51,6 +51,10 @@
 - Device control-ът известява точния client веднага по WebSocket и поддържа
   diagnostics/connectivity, PWA update/cache, pause/resume, reload и безопасни
   локални тестове с траен ACK.
+- Rule-based асистентът разпознава широк набор български формулировки,
+  склонения и малки печатни/STT грешки за всички управлявани училищни справки.
+  Активните записи в „Училищен указател и FAQ“ служат като разширяема
+  knowledge база без промяна на кода.
 - Добавени са 100-device/5-round reconnect baseline и operational runbook за
   restart, backup, restore, lost key и offline tablet.
 - `main` има branch protection със strict required Python, dependency, PWA и
@@ -60,7 +64,7 @@
 
 ## Проверено
 
-- 69 теста се откриват локално: 67 минават, а live PostgreSQL и browser
+- 75 теста се откриват локално: 73 минават, а live PostgreSQL и browser
   acceptance са коректно opt-in и са пропуснати в обикновения SQLite run.
 - Отделният пълен Chromium acceptance минава през pairing, public feed, QR
   session, targeted delivery, remote command wake-up/ACK, storage privacy,
@@ -68,7 +72,7 @@
   минава локално.
 - CI е разширен с Chromium full acceptance и Firefox, WebKit и Windows Edge
   smoke jobs.
-- 69 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
+- 71 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
   преминават `node --check`.
 - Покрити са fresh migration, legacy upgrade, вече stamped database и отказ при outdated schema.
 - Покрити са REST, CSRF, Argon2, RBAC, encrypted secrets, device lifecycle, WebSocket targeting, imports, privacy и backups.
