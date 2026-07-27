@@ -24,8 +24,8 @@ staff browser ◄──────── RBAC + CSRF SQLAdmin control centre
 - `engine/` съдържа SQLAlchemy моделите и security primitives;
 - `migrations/` е единственият източник за database schema;
 - `client_qr_node.py` е клиентът за камера, QR и локален говор;
-- `tools/` съдържа admin bootstrap, device simulator и защитена PostgreSQL
-  restore проверка.
+- `tools/` съдържа admin bootstrap, device simulator, audited maintenance,
+  reconnect baseline и защитена PostgreSQL restore проверка.
 
 ## Изисквания
 
@@ -92,12 +92,16 @@ Copy-Item .env.example .env.local
 - liveness: `http://localhost:5000/health/live`
 - readiness (база, migrations и background monitor):
   `http://localhost:5000/health/ready`
+- Prometheus-compatible process metrics:
+  `http://localhost:5000/health/metrics`
 
 Runtime базата, imports и backups не се проследяват от Git. Преди migration на съществуваща инсталация винаги създавайте проверено резервно копие.
 
 Linux production deployment без Docker е описан в
 `docs/LINUX_DEPLOYMENT.md`. Предоставени са `run.sh`, hardened `systemd`
 service, Nginx WebSocket/TLS шаблон и logrotate правило.
+Автоматичните backup/retention задачи се изпълняват от отделен persistent
+`systemd` timer и оставят audit запис за всяко изпълнение.
 
 ## Киоск и информационен екран PWA
 
@@ -136,7 +140,10 @@ manifest-based инсталация.
 свързване/разкачване, camera permission/status, безопасен browser capability
 snapshot и чакащи command ACK. Background monitor отбелязва остарелите
 устройства offline на всеки 15 секунди, независимо дали админ панелът е
-отворен.
+отворен. От **Управление на устройства** могат безопасно да се изпратят
+pause/resume, config reload, connectivity/diagnostics, PWA update/cache и
+camera/audio/screen test команди. Командата се известява веднага по WebSocket
+и остава трайно pending до ACK.
 
 ## Python QR node fallback
 
@@ -212,6 +219,7 @@ WebKit и Microsoft Edge на Windows. Настройката и required checks
 - `ADMIN_GUIDE.md` — ежедневна работа в панела;
 - `docs/WINDOWS_POSTGRESQL.md` — локална PostgreSQL инсталация, тестове и restore;
 - `docs/LINUX_DEPLOYMENT.md` — production инсталация без Docker;
+- `docs/OPERATIONS_RUNBOOK.md` — наблюдение, restart, backup/restore и устройства;
 - `docs/KIOSK_PWA.md` — pairing, инсталация, режими, сигурност и pilot;
 - `docs/CI.md` — GitHub Actions и branch protection checks;
 - `docs/SECURITY.md` — dependency audit правила и временни изключения;

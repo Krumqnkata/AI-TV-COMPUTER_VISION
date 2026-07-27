@@ -12,6 +12,7 @@
     const knownConfigVersions = new Map();
     const diagnosticOverrides = new Map();
     const diagnosticTimers = new Map();
+    const commandPolls = new Map();
 
     class ApiError extends Error {
         constructor(message, status, payload) {
@@ -551,7 +552,11 @@
                         livenessTimer = null;
                         setConnectionState("online", "Свързан");
                     }
-                    onMessage(message);
+                    if (message.type === "device_command_available") {
+                        void pollCommands(profile);
+                    } else {
+                        onMessage(message);
+                    }
                 } catch (error) {
                     console.warn("Invalid WebSocket message", error);
                 }
@@ -621,6 +626,26 @@
         setPaused(profile, localStorage.getItem(`school-ai-paused:${profile}`) === "1");
     }
 
+    async function updatePwaAssets(clearExisting) {
+        let deletedCaches = 0;
+        if (clearExisting) {
+            if (!("caches" in window)) {
+                throw new Error("CacheApiUnavailable");
+            }
+            const keys = await caches.keys();
+            const targets = keys.filter((key) => key.startsWith("school-ai-"));
+            const deleted = await Promise.all(targets.map((key) => caches.delete(key)));
+            deletedCaches = deleted.filter(Boolean).length;
+        }
+        let registrations = 0;
+        if ("serviceWorker" in navigator) {
+            const items = await navigator.serviceWorker.getRegistrations();
+            registrations = items.length;
+            await Promise.all(items.map((registration) => registration.update()));
+        }
+        return { deleted_caches: deletedCaches, registrations };
+    }
+
     async function executeCommand(profile, command) {
         let success = true;
         const result = {};
@@ -639,6 +664,24 @@
                     result.action = "reload";
                     document.dispatchEvent(new CustomEvent("schoolai:command", { detail: command }));
                     break;
+                case "request_diagnostics":
+                    await sendHeartbeat(profile, false, true);
+                    result.action = "diagnostics_refreshed";
+                    break;
+                case "check_connectivity": {
+                    const health = await api("/health/live");
+                    result.action = "connectivity_checked";
+                    result.alive = Boolean(health && health.alive);
+                    break;
+                }
+                case "update_app":
+                    Object.assign(result, await updatePwaAssets(false));
+                    result.action = "update_and_reload";
+                    break;
+                case "clear_pwa_cache":
+                    Object.assign(result, await updatePwaAssets(true));
+                    result.action = "cache_cleared_and_reload";
+                    break;
                 case "test_camera":
                 case "test_audio":
                 case "test_screen":
@@ -650,32 +693,53 @@
             }
         } catch (error) {
             success = false;
-            result.error = error instanceof Error ? error.message : String(error);
+            result.error = error instanceof Error ? error.name : "command_failed";
         }
 
         await api(`/api/${profile}/device/commands/${command.id}/ack`, {
             method: "POST",
             body: { success, result },
         });
-        if (success && ["refresh_config", "restart_app"].includes(command.command)) {
+        if (
+            success
+            && [
+                "refresh_config",
+                "restart_app",
+                "update_app",
+                "clear_pwa_cache",
+            ].includes(command.command)
+        ) {
             location.reload();
         }
     }
 
     async function pollCommands(profile) {
-        try {
-            const commands = await api(`/api/${profile}/device/commands/pending`);
-            for (const command of commands || []) {
-                await executeCommand(profile, command);
-            }
-        } catch (error) {
-            if (error instanceof ApiError && error.status === 401) {
-                location.replace(`/pair?profile=${encodeURIComponent(profile)}`);
-            }
+        if (commandPolls.has(profile)) {
+            return commandPolls.get(profile);
         }
+        const poll = (async () => {
+            try {
+                const commands = await api(`/api/${profile}/device/commands/pending`);
+                for (const command of commands || []) {
+                    await executeCommand(profile, command);
+                }
+            } catch (error) {
+                if (error instanceof ApiError && error.status === 401) {
+                    location.replace(`/pair?profile=${encodeURIComponent(profile)}`);
+                }
+            } finally {
+                commandPolls.delete(profile);
+            }
+        })();
+        commandPolls.set(profile, poll);
+        return poll;
     }
 
-    async function sendHeartbeat(profile) {
+    async function sendHeartbeat(
+        profile,
+        reloadOnConfigChange = true,
+        propagateError = false
+    ) {
         try {
             const diagnostics = await collectDiagnostics(profile);
             const heartbeat = await api(`/api/${profile}/device/heartbeat`, {
@@ -684,23 +748,33 @@
                     status: localStorage.getItem(`school-ai-paused:${profile}`) === "1"
                         ? "paused"
                         : "online",
-                    software_version: "pwa-1.1.1",
+                    software_version: "pwa-1.2.0",
                     capabilities: PROFILE_CAPABILITIES[profile],
                     diagnostics,
                 },
             });
             const knownVersion = knownConfigVersions.get(profile);
-            if (
+            const configChanged = (
                 knownVersion !== undefined
                 && Number(heartbeat.config_version) !== Number(knownVersion)
+            );
+            if (
+                reloadOnConfigChange
+                && configChanged
             ) {
                 location.reload();
                 return;
             }
-            knownConfigVersions.set(profile, heartbeat.config_version);
+            if (!configChanged || reloadOnConfigChange) {
+                knownConfigVersions.set(profile, heartbeat.config_version);
+            }
+            return heartbeat;
         } catch (error) {
             if (error instanceof ApiError && error.status === 401) {
                 location.replace(`/pair?profile=${encodeURIComponent(profile)}`);
+            }
+            if (propagateError) {
+                throw error;
             }
         }
     }

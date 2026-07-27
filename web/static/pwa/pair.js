@@ -216,7 +216,7 @@
                 body: {
                     identifier: identifierInput.value.trim(),
                     name: nameInput.value.trim(),
-                    software_version: "pwa-1.1.1",
+                    software_version: "pwa-1.2.0",
                 },
             });
             tokenInput.value = "";

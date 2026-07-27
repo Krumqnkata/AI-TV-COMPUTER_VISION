@@ -75,7 +75,12 @@ def _generate(db: Session, prompt: str, system_instruction: str) -> str | None:
             )
             return str(response["message"]["content"]).strip()
     except Exception as exc:  # External AI must never break the kiosk fallback.
-        log_system(f"Runtime AI fallback failed: {exc}", "error")
+        log_system(
+            "Runtime AI fallback failed",
+            "error",
+            event="assistant.runtime_fallback_failed",
+            error_type=type(exc).__name__,
+        )
     return None
 
 

@@ -28,11 +28,38 @@ SAFE_COMMANDS: dict[str, str] = {
     "refresh_config": "Опресни конфигурацията",
     "enable": "Включи приложението",
     "disable": "Постави приложението на пауза",
+    "request_diagnostics": "Изискай актуална диагностика",
+    "check_connectivity": "Провери връзката със сървъра",
+    "update_app": "Провери и приложи PWA обновяване",
+    "clear_pwa_cache": "Изчисти PWA кеша и презареди",
     "test_camera": "Тествай камерата",
     "test_audio": "Тествай звука",
     "test_screen": "Тествай екрана",
     "restart_app": "Рестартирай приложението",
 }
+PWA_COMMANDS_BY_PROFILE: dict[str, frozenset[str]] = {
+    "kiosk": frozenset(SAFE_COMMANDS),
+    "screen": frozenset({
+        "refresh_config",
+        "enable",
+        "disable",
+        "request_diagnostics",
+        "check_connectivity",
+        "update_app",
+        "clear_pwa_cache",
+        "test_screen",
+        "restart_app",
+    }),
+}
+NODE_COMMANDS = frozenset({
+    "refresh_config",
+    "enable",
+    "disable",
+    "test_camera",
+    "test_audio",
+    "test_screen",
+    "restart_app",
+})
 
 
 @dataclass(frozen=True)
@@ -403,6 +430,12 @@ def queue_command(
 ) -> DeviceCommand:
     if command not in SAFE_COMMANDS:
         raise ValueError("Непозволена команда")
+    allowed_commands = PWA_COMMANDS_BY_PROFILE.get(
+        device.device_type,
+        NODE_COMMANDS,
+    )
+    if command not in allowed_commands:
+        raise ValueError("Командата не се поддържа от този тип устройство")
     item = DeviceCommand(
         device_id=device.id,
         command=command,
@@ -423,6 +456,15 @@ def queue_command(
     db.commit()
     db.refresh(item)
     return item
+
+
+def available_safe_commands(device: DeviceNode) -> dict[str, str]:
+    allowed = PWA_COMMANDS_BY_PROFILE.get(device.device_type, NODE_COMMANDS)
+    return {
+        command: label
+        for command, label in SAFE_COMMANDS.items()
+        if command in allowed
+    }
 
 
 def pending_commands(db: Session, context: DeviceContext) -> list[DeviceCommand]:

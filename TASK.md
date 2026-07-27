@@ -1,6 +1,6 @@
 # School AI — окончателен активен roadmap
 
-**Последна актуализация:** 26 юли 2026 г.
+**Последна актуализация:** 27 юли 2026 г.
 
 Този файл е единственият актуален списък с оставащата работа по продукта.
 Завършеното е обобщено в `PROGRESS.md`, а историческата спецификация е в
@@ -55,8 +55,8 @@
   `main`.
 - [ ] `main` да остане със зелени Python 3.11, Python 3.12 и dependency audit
   проверки.
-- [ ] Да се включи branch protection с required CI checks.
-- [ ] При промяна на database/deployment кода да се изпълнява и live
+- [x] Да се включи branch protection с required CI checks.
+- [x] При промяна на database/deployment кода да се изпълнява и live
   PostgreSQL test върху отделната `*_test` база.
 
 ### 1. Tablet QR proof of concept
@@ -91,6 +91,9 @@
   получава само събитията за своя екран/зона.
 - [x] Да има heartbeat, config refresh, command polling/ACK и видим
   online/offline статус.
+- [x] Безопасните application команди да известяват точния PWA client по
+  WebSocket и да покриват диагностика, connectivity, update/cache, pause/resume
+  и локалните camera/audio/screen тестове.
 - [x] Reconnect логиката да използва backoff, а delivery ACK да се повтаря
   безопасно след временна мрежова грешка.
 - [x] Да има защита от повторно показване на една и съща доставка.
@@ -138,24 +141,24 @@
 ### 4. Минимална наблюдаемост и автоматизация
 
 - [x] Да се добавят `/health/live` и `/health/ready` endpoints.
-- [ ] Логовете да станат structured JSON с request/correlation ID, device ID и
+- [x] Логовете да станат structured JSON с request/correlation ID, device ID и
   безопасно редуцирани грешки без credentials или лични съобщения.
-- [ ] Да има метрики за HTTP грешки, latency, активни WebSocket връзки,
+- [x] Да има метрики за HTTP грешки, latency, активни WebSocket връзки,
   offline устройства, QR failures и забавени ACK.
 - [x] Offline marking да работи като периодична задача, а не само при отваряне
   на admin dashboard.
-- [ ] Да има пълен набор оперативни предупреждения:
+- [x] Да има пълен набор оперативни предупреждения:
   - [x] устройство без heartbeat;
   - [x] доставка/команда без ACK;
   - [x] липсващ или стар проверен backup;
-  - [ ] недостатъчно disk space;
-  - [ ] неуспешна периодична задача.
+  - [x] недостатъчно disk space;
+  - [x] неуспешна периодична задача.
 - [x] Да има админ диагностика за камера, WebSocket, browser capabilities,
   heartbeat, чакащи command ACK и последна връзка.
-- [ ] Retention cleanup и backup графикът да бъдат автоматизирани с
+- [x] Retention cleanup и backup графикът да бъдат автоматизирани с
   deployment-level scheduler и audit.
-- [ ] Да се добавят load/reconnect тестове за очаквания брой устройства.
-- [ ] Да се напише кратък operational runbook за restart, backup, restore,
+- [x] Да се добавят load/reconnect тестове за очаквания брой устройства.
+- [x] Да се напише кратък operational runbook за restart, backup, restore,
   lost device key и offline tablet.
 
 ### 5. Училищен production rollout

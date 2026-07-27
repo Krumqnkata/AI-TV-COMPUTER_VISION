@@ -38,17 +38,33 @@
 - Админ диагностиката обединява heartbeat, текущ/последен WebSocket, camera и
   privacy-safe browser capabilities, command ACK и предупреждения за
   heartbeat, delivery/command ACK и стар backup.
+- Логовете са JSON Lines с request/correlation ID, device ID и редуциран
+  `error_type`; query/body, credentials и лични съобщения не се записват.
+- `/health/metrics` предоставя агрегирани HTTP error/latency, WebSocket,
+  offline-device, QR и delayed-ACK метрики, а Nginx шаблонът го ограничава до
+  локален monitoring.
+- Disk space и failed/stale maintenance задачите се показват като operational
+  warnings. Daily persistent systemd timer изпълнява audited backup и
+  retention jobs.
+- Device control-ът известява точния client веднага по WebSocket и поддържа
+  diagnostics/connectivity, PWA update/cache, pause/resume, reload и безопасни
+  локални тестове с траен ACK.
+- Добавени са 100-device/5-round reconnect baseline и operational runbook за
+  restart, backup, restore, lost key и offline tablet.
+- `main` има branch protection със strict required Python, dependency, PWA и
+  CodeQL checks, linear history и забранени force push/delete.
 
 ## Проверено
 
-- 61 теста се откриват локално: 59 минават, а live PostgreSQL и browser
+- 67 теста се откриват локално: 65 минават, а live PostgreSQL и browser
   acceptance са коректно opt-in и са пропуснати в обикновения SQLite run.
 - Отделният пълен Chromium acceptance минава през pairing, public feed, QR
-  session, targeted delivery, ACK, storage privacy, idle cleanup, reconnect и
-  Service Worker. Windows Microsoft Edge smoke също минава локално.
+  session, targeted delivery, remote command wake-up/ACK, storage privacy,
+  idle cleanup, reconnect и Service Worker. Windows Microsoft Edge smoke също
+  минава локално.
 - CI е разширен с Chromium full acceptance и Firefox, WebKit и Windows Edge
   smoke jobs.
-- 63 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
+- 69 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
   преминават `node --check`.
 - Покрити са fresh migration, legacy upgrade, вече stamped database и отказ при outdated schema.
 - Покрити са REST, CSRF, Argon2, RBAC, encrypted secrets, device lifecycle, WebSocket targeting, imports, privacy и backups.
@@ -57,14 +73,14 @@
 - Реален PostgreSQL backup е създаден с `pg_dump`, проверен с
   `pg_restore --list` и успешно възстановен в disposable `_test` база: 39 таблици на
   Alembic revision `20260722_01`.
+- Новата migration верига достига единствен head `20260728_01`; отделният live
+  PostgreSQL `_test` migration test минава с 39 application таблици.
 - Server, development (включително Playwright 1.61.0) и optional-AI profiles
   нямат известни advisories.
   QR-node профилът има едно ограничено и документирано gTTS/Click изключение.
 - GitHub workflow файловете минават `actionlint 1.7.12`.
 
-Софтуерната част на Kiosk PWA v1 е завършена. Минималната operational основа
-вече има health probes, offline monitor, основни предупреждения и
-диагностика. Остават structured logs/metrics, disk/job warnings, scheduler,
-load tests и runbook, както и физическият 2 MP camera proof of concept,
-заключването, петдневният pilot и реалният училищен TLS/PostgreSQL rollout;
-те са описани само в `TASK.md`.
+Софтуерната част на Kiosk PWA v1 и минималният operational пакет са завършени.
+Остават физическият 2 MP camera proof of concept, device-owner/MDM
+заключването, петдневният pilot и реалният училищен TLS/PostgreSQL rollout; те
+са описани само в `TASK.md`.

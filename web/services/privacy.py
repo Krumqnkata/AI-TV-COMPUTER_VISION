@@ -54,7 +54,7 @@ def retention_preview(db: Session) -> dict[str, dict[str, Any]]:
 
 def execute_retention_cleanup(
     db: Session,
-    actor: StaffAccount,
+    actor: StaffAccount | None,
     *,
     ip_address: str | None = None,
 ) -> PrivacyCleanupRun:
@@ -81,7 +81,7 @@ def execute_retention_cleanup(
         mode="execute",
         status="completed",
         summary_json=json.dumps(deleted, ensure_ascii=False),
-        executed_by_staff_id=actor.id,
+        executed_by_staff_id=actor.id if actor else None,
     )
     db.add(run)
     audit_event(

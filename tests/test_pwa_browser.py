@@ -170,6 +170,28 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             time.sleep(0.2)
         self.fail("The browser did not persist and deliver its acknowledgment")
 
+    def _wait_for_device_command_ack(self, command: str):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                with sqlite3.connect(self.database_path) as connection:
+                    row = connection.execute(
+                        """
+                        SELECT status, result_json
+                        FROM device_commands
+                        WHERE command = ?
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (command,),
+                    ).fetchone()
+                if row and row[0] == "acknowledged":
+                    return json.loads(row[1] or "{}")
+            except (sqlite3.OperationalError, json.JSONDecodeError):
+                pass
+            time.sleep(0.1)
+        self.fail("The browser did not acknowledge the remote command within 5 seconds")
+
     def _start_connection_trace(self, page):
         page.evaluate(
             """
@@ -278,6 +300,39 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             if item["name"] == "school_ai_kiosk_device_key"
         )
         self.assertTrue(kiosk_secret["httpOnly"])
+        self._expect_connected(kiosk_page, cycle=0)
+
+        admin_context = self.browser.new_context(locale="bg-BG")
+        admin_page = admin_context.new_page()
+        admin_page.goto(f"{self.base_url}/admin/login")
+        admin_page.locator('input[name="username"]').fill(
+            self.tokens["admin_username"],
+        )
+        admin_page.locator('input[name="password"]').fill(
+            self.tokens["admin_password"],
+        )
+        admin_page.locator('button[type="submit"]').click()
+        admin_page.wait_for_load_state("domcontentloaded")
+        admin_page.goto(f"{self.base_url}/admin/devices")
+        expect(admin_page).to_have_url(
+            re.compile(r"/admin/devices$"),
+            timeout=8_000,
+        )
+        device_card = admin_page.locator(".school-device-card").filter(
+            has_text="Playwright киоск",
+        )
+        device_card.locator("details > summary").click()
+        command_form = device_card.locator("form.school-command-form")
+        command_form.locator('select[name="command"]').select_option(
+            "request_diagnostics",
+        )
+        command_form.locator('button[type="submit"]').click()
+        expect(admin_page).to_have_url(re.compile(r"/admin/devices\?ok="), timeout=8_000)
+        command_result = self._wait_for_device_command_ack(
+            "request_diagnostics",
+        )
+        self.assertEqual(command_result["action"], "diagnostics_refreshed")
+        admin_context.close()
 
         kiosk_page.locator(".manual-scan summary").click()
         kiosk_page.locator('input[name="badge_token"]').fill("SCH-8F3A92C1")

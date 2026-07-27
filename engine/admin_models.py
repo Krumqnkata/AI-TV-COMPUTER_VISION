@@ -409,6 +409,21 @@ class BackupRecord(Base):
     created_by = relationship("StaffAccount")
 
 
+class OperationalJobRun(Base):
+    """Persisted outcome of one deployment-scheduled maintenance task."""
+
+    __tablename__ = "operational_job_runs"
+
+    id = Column(Integer, primary_key=True)
+    job_name = Column(String(50), nullable=False, index=True)
+    status = Column(String(30), nullable=False, index=True)
+    started_at = Column(DateTime, default=now_bg, nullable=False, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    duration_ms = Column(Integer, nullable=True)
+    summary_json = Column(Text, nullable=True)
+    error_type = Column(String(100), nullable=True)
+
+
 class DeviceNode(Base):
     __tablename__ = "device_nodes"
 

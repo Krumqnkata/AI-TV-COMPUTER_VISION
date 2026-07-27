@@ -41,6 +41,7 @@ from web.services.device_control import (
     revoke_device_context,
     update_heartbeat,
 )
+from web.services.metrics import metrics_registry
 from web.services.runtime import ActiveSession, runtime_registry
 from web.services.screen_content import build_screen_feed
 
@@ -227,6 +228,7 @@ async def kiosk_detect(
         db,
         session_timeout_seconds=int(config["settings"]["kiosk_idle_seconds"]),
     )
+    metrics_registry.record_qr_result(str(result.get("status", "error")))
     ws_type = result.pop("ws_type", None)
     ws_data = result.pop("ws_data", None)
     zone_id = result.pop("zone_id", device.zone_id)

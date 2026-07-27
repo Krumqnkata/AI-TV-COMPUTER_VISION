@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +34,7 @@ alembic_command.upgrade(_test_migration_config, "head")
 
 
 from engine.auth import get_password_hash  # noqa: E402
-from engine.admin_models import Announcement, BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, StaffAccount, StaffRole, SystemSetting  # noqa: E402
+from engine.admin_models import AdminAuditEvent, Announcement, BackupRecord, DeviceCommand, DeviceNode, EncryptedSecret, OperationalJobRun, StaffAccount, StaffRole, SystemSetting  # noqa: E402
 from engine.db import Badge, Base, DeliveryReceipt, InteractionPoint, Message, Person, SystemEvent, Timetable, hash_token, now_bg  # noqa: E402
 from tests.fixtures import seed_test_data  # noqa: E402
 from web.database import SessionLocal, assert_schema_current, db_engine  # noqa: E402
@@ -49,9 +50,10 @@ from web.services.admin_control import (  # noqa: E402
     update_settings,
 )
 from web.services.backups import create_sqlite_backup, verify_backup  # noqa: E402
-from web.services.device_control import create_enrollment_token, queue_command  # noqa: E402
+from web.services.device_control import available_safe_commands, create_enrollment_token, queue_command  # noqa: E402
 from web.services.imports import execute_schedule_import, preview_schedule_import  # noqa: E402
 from web.services.operations import collect_operational_warnings, run_operations_cycle  # noqa: E402
+from web.services.maintenance import run_maintenance_job  # noqa: E402
 from web.services.privacy import execute_retention_cleanup, retention_preview  # noqa: E402
 from utils.config import Config as AppConfig  # noqa: E402
 
@@ -61,7 +63,12 @@ LEGACY_TABLE_NAMES = {
     "persons", "badges", "interaction_points", "cameras", "messages",
     "timetable", "events", "system_events", "delivery_receipts",
 }
-CONTROL_TABLE_NAMES = {"staff_accounts", "device_nodes", "system_settings"}
+CONTROL_TABLE_NAMES = {
+    "staff_accounts",
+    "device_nodes",
+    "system_settings",
+    "operational_job_runs",
+}
 
 
 class TestSchoolAIAPI(unittest.TestCase):
@@ -207,10 +214,14 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertEqual(service_worker.headers["service-worker-allowed"], "/")
 
     def test_health_probes_report_process_and_dependency_state(self):
-        live = self.client.get("/health/live")
+        live = self.client.get(
+            "/health/live",
+            headers={"X-Request-ID": "health-contract-123"},
+        )
         self.assertEqual(live.status_code, 200, live.text)
         self.assertTrue(live.json()["alive"])
         self.assertEqual(live.headers["cache-control"], "no-store")
+        self.assertEqual(live.headers["x-request-id"], "health-contract-123")
 
         ready = self.client.get("/health/ready")
         self.assertEqual(ready.status_code, 200, ready.text)
@@ -220,6 +231,14 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertTrue(payload["checks"]["migrations"]["ok"])
         self.assertTrue(payload["checks"]["operations_monitor"]["ok"])
         self.assertNotIn("password", ready.text.casefold())
+
+        metrics = self.client.get("/health/metrics")
+        self.assertEqual(metrics.status_code, 200, metrics.text)
+        self.assertIn("school_ai_http_requests_total", metrics.text)
+        self.assertIn("school_ai_http_request_duration_seconds_sum", metrics.text)
+        self.assertIn("school_ai_active_websockets", metrics.text)
+        self.assertIn("school_ai_delayed_command_acks", metrics.text)
+        self.assertNotIn("device_id=", metrics.text)
 
     def test_pwa_pair_bootstrap_and_unpair_use_separate_http_only_credentials(self):
         response = self._pair_pwa("kiosk", "pwa-kiosk-cookie-test")
@@ -347,6 +366,47 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertIsNotNone(screen_device.last_websocket_at)
         self.assertIsNotNone(kiosk_device.last_websocket_at)
 
+    def test_admin_command_wakes_exact_pwa_device_over_websocket(self):
+        paired = self._pair_pwa("kiosk", "pwa-command-wakeup")
+        self.assertEqual(paired.status_code, 200, paired.text)
+        self.db.expire_all()
+        device = self.db.query(DeviceNode).filter(
+            DeviceNode.identifier == "pwa-command-wakeup",
+        ).one()
+        self.assertIn("request_diagnostics", available_safe_commands(device))
+
+        self._login_admin()
+        with self.client.websocket_connect("/ws/kiosk") as socket:
+            self.assertEqual(socket.receive_json()["type"], "registered")
+            response = self.client.post(
+                f"/admin/devices/{device.id}/command",
+                data={"command": "request_diagnostics"},
+                headers={"Origin": "http://testserver"},
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 303, response.text)
+            notification = socket.receive_json()
+            self.assertEqual(notification["type"], "device_command_available")
+            self.assertIsInstance(notification["data"]["command_id"], int)
+        history = self.client.get("/admin/devices")
+        self.assertEqual(history.status_code, 200)
+        self.assertIn("Последни дистанционни команди", history.text)
+        self.assertIn("Изискай актуална диагностика", history.text)
+        self.assertIn("pending", history.text)
+        self.client.cookies.delete("session")
+
+        screen = DeviceNode(
+            identifier="command-profile-screen",
+            name="Command profile screen",
+            device_type="screen",
+        )
+        self.db.add(screen)
+        self.db.commit()
+        with self.assertRaisesRegex(ValueError, "не се поддържа"):
+            queue_command(self.db, screen, "test_audio", self.staff)
+        self.db.delete(screen)
+        self.db.commit()
+
     def test_device_heartbeat_diagnostics_are_visible_to_admin(self):
         paired = self._pair_pwa("kiosk", "pwa-diagnostics-kiosk")
         self.assertEqual(paired.status_code, 200, paired.text)
@@ -450,6 +510,65 @@ class TestSchoolAIAPI(unittest.TestCase):
             ).delete()
             self.db.query(DeviceNode).filter(DeviceNode.id == device.id).delete()
             self.db.commit()
+
+    def test_scheduler_records_success_failure_audit_and_warnings(self):
+        success = run_maintenance_job("backup")
+        self.assertEqual(success.status, "completed")
+        self.db.expire_all()
+        completed = self.db.get(OperationalJobRun, success.run_id)
+        self.assertEqual(completed.status, "completed")
+        self.assertIsNotNone(completed.finished_at)
+
+        with patch(
+            "web.services.maintenance.create_database_backup",
+            side_effect=RuntimeError("sensitive-test-detail"),
+        ):
+            with self.assertRaises(RuntimeError):
+                run_maintenance_job("backup")
+
+        self.db.expire_all()
+        failed = self.db.query(OperationalJobRun).filter(
+            OperationalJobRun.job_name == "backup",
+            OperationalJobRun.status == "failed",
+        ).order_by(OperationalJobRun.id.desc()).one()
+        self.assertEqual(failed.error_type, "RuntimeError")
+        self.assertNotIn("sensitive-test-detail", failed.summary_json or "")
+        failure_audit = self.db.query(AdminAuditEvent).filter(
+            AdminAuditEvent.action == "operations.job_failed",
+            AdminAuditEvent.entity_id == str(failed.id),
+        ).one()
+        self.assertIsNone(failure_audit.actor_staff_id)
+        self.assertNotIn("sensitive-test-detail", failure_audit.changes_json or "")
+
+        try:
+            update_settings(
+                self.db,
+                {"operations.maintenance_enabled": True},
+                self.staff,
+            )
+            with patch(
+                "web.services.operations.disk_space_report",
+                return_value={
+                    "available": True,
+                    "path": "test",
+                    "free_mb": 1,
+                    "total_mb": 100,
+                    "used_percent": 99,
+                },
+            ):
+                codes = {
+                    warning.code
+                    for warning in collect_operational_warnings(self.db)
+                }
+            self.assertIn("disk-space-low", codes)
+            self.assertIn("maintenance-failed-backup", codes)
+            self.assertIn("maintenance-never-retention", codes)
+        finally:
+            update_settings(
+                self.db,
+                {"operations.maintenance_enabled": False},
+                self.staff,
+            )
 
     def test_websocket_registration_targeted_delivery_and_ack(self):
         with self.client.websocket_connect("/ws") as websocket, self.client.websocket_connect("/ws") as other_zone:

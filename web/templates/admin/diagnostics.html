@@ -43,7 +43,30 @@
   <article class="school-stat">
     <i class="fa-solid fa-triangle-exclamation"></i>
     <div><strong>{{ warnings|length }}</strong><span>активни предупреждения</span></div>
-    <small>Heartbeat, ACK и backup</small>
+    <small>Heartbeat, ACK, backup, disk и scheduler</small>
+  </article>
+</section>
+
+<section class="school-stat-grid" aria-label="Application metrics">
+  <article class="school-stat">
+    <i class="fa-solid fa-arrow-right-arrow-left"></i>
+    <div><strong>{{ process_metrics.http_duration_count }}</strong><span>HTTP заявки</span></div>
+    <small>{{ process_metrics.http_errors }} грешки в този process</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-stopwatch"></i>
+    <div><strong>{{ average_latency_ms }} ms</strong><span>средна latency</span></div>
+    <small>От старта на текущия process</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-qrcode"></i>
+    <div><strong>{{ process_metrics.qr_results.get('error', 0) }}</strong><span>QR грешки</span></div>
+    <small>{{ process_metrics.qr_results.get('ignored', 0) }} игнорирани сканирания</small>
+  </article>
+  <article class="school-stat">
+    <i class="fa-solid fa-hard-drive"></i>
+    <div><strong>{{ disk.free_mb if disk.available else 'N/A' }}{% if disk.available %} MB{% endif %}</strong><span>свободен диск</span></div>
+    <small>{% if disk.available %}{{ disk.used_percent }}% използвани{% else %}проверката е неуспешна{% endif %}</small>
   </article>
 </section>
 
@@ -70,6 +93,42 @@
     <i class="fa-solid fa-circle-check"></i>
     <h3>Няма активни предупреждения</h3>
     <p>Heartbeat, ACK и backup проверките са в допустимите граници.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="school-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">Deployment scheduler</p>
+      <h2>Последни периодични задачи</h2>
+      <p>Backup и retention се стартират от systemd timer и оставят постоянен audit запис.</p>
+    </div>
+  </header>
+  {% if job_runs %}
+  <div class="school-table-wrap">
+    <table class="school-table">
+      <thead>
+        <tr><th>Задача</th><th>Статус</th><th>Старт</th><th>Продължителност</th><th>Грешка</th></tr>
+      </thead>
+      <tbody>
+        {% for run in job_runs %}
+        <tr>
+          <td>{{ run.job_name }}</td>
+          <td><span class="school-status school-status-{{ 'online' if run.status == 'completed' else 'warning' if run.status == 'running' else 'error' }}">{{ run.status }}</span></td>
+          <td>{{ run.started_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+          <td>{{ run.duration_ms ~ ' ms' if run.duration_ms is not none else '—' }}</td>
+          <td>{{ run.error_type or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="school-empty school-empty-compact">
+    <i class="fa-solid fa-clock"></i>
+    <h3>Още няма scheduler изпълнения</h3>
+    <p>Инсталирайте timer-а и включете следенето му от „Настройки → Наблюдение“.</p>
   </div>
   {% endif %}
 </section>
