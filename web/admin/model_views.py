@@ -305,13 +305,29 @@ class ReminderAdmin(PermissionedModelView, model=Reminder):
 
 class DirectoryEntryAdmin(PermissionedModelView, model=DirectoryEntry):
     name = "Запис в указателя"
-    name_plural = "Училищен указател"
+    name_plural = "Училищен указател и FAQ"
     category = "Съдържание"
     icon = "fa-solid fa-address-book"
     view_permission = "content.view"
     manage_permission = "content.manage"
     archive_on_delete = True
     column_list = [DirectoryEntry.kind, DirectoryEntry.name, DirectoryEntry.value, DirectoryEntry.sort_order, DirectoryEntry.active]
+    form_columns = [
+        DirectoryEntry.kind,
+        DirectoryEntry.name,
+        DirectoryEntry.value,
+        DirectoryEntry.details,
+        DirectoryEntry.sort_order,
+        DirectoryEntry.active,
+    ]
+    column_labels = {
+        DirectoryEntry.kind: "Тип (напр. faq, телефон, работно време)",
+        DirectoryEntry.name: "Въпрос или име",
+        DirectoryEntry.value: "Кратък отговор или стойност",
+        DirectoryEntry.details: "Допълнение и ключови думи",
+        DirectoryEntry.sort_order: "Ред",
+        DirectoryEntry.active: "Активен",
+    }
     column_searchable_list = [DirectoryEntry.name, DirectoryEntry.value]
     column_formatters = {DirectoryEntry.active: _yes_no}
 
