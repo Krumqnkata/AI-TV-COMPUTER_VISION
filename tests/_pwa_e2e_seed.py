@@ -16,7 +16,11 @@ from engine.auth import get_password_hash
 from engine.db import InteractionPoint, Person, now_bg
 from tests.fixtures import seed_test_data
 from web.database import SessionLocal
-from web.services.admin_control import ensure_admin_foundation, provision_staff_from_person
+from web.services.admin_control import (
+    ensure_admin_foundation,
+    provision_staff_from_person,
+    update_settings,
+)
 from web.services.device_control import create_enrollment_token
 
 
@@ -32,6 +36,11 @@ def main() -> None:
         actor = provision_staff_from_person(db, admin_person)
         actor.password_hash = admin_person.password_hash
         db.commit()
+        update_settings(
+            db,
+            {"features.kiosk_auto_speak_answers": True},
+            actor,
+        )
         point = db.query(InteractionPoint).filter(
             InteractionPoint.name == "Главен вход - Екран",
         ).one()

@@ -296,6 +296,35 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             return
 
         kiosk_context = self.browser.new_context(locale="bg-BG")
+        kiosk_context.add_init_script(
+            """
+            (() => {
+                window.__schoolAiSpeech = { cancelCount: 0, spoken: [] };
+                class MockSpeechSynthesisUtterance {
+                    constructor(text) {
+                        this.text = text;
+                        this.lang = "";
+                        this.rate = 1;
+                    }
+                }
+                Object.defineProperty(window, "SpeechSynthesisUtterance", {
+                    configurable: true,
+                    value: MockSpeechSynthesisUtterance,
+                });
+                Object.defineProperty(window, "speechSynthesis", {
+                    configurable: true,
+                    value: {
+                        cancel() {
+                            window.__schoolAiSpeech.cancelCount += 1;
+                        },
+                        speak(utterance) {
+                            window.__schoolAiSpeech.spoken.push(utterance.text);
+                        },
+                    },
+                });
+            })();
+            """
+        )
         kiosk_page = self._pair(
             kiosk_context,
             "kiosk",
@@ -385,6 +414,35 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             "08:15",
             timeout=8_000,
         )
+        kiosk_page.wait_for_function(
+            "() => window.__schoolAiSpeech.spoken"
+            ".some((text) => text.includes('08:15'))",
+            timeout=8_000,
+        )
+        first_speech = kiosk_page.evaluate(
+            "() => ({"
+            " cancelCount: window.__schoolAiSpeech.cancelCount,"
+            " spokenCount: window.__schoolAiSpeech.spoken.length"
+            "})"
+        )
+
+        assistant_input.fill("Какви събития предстоят?")
+        kiosk_page.wait_for_function(
+            "(count) => window.__schoolAiSpeech.cancelCount > count",
+            arg=first_speech["cancelCount"],
+            timeout=3_000,
+        )
+        kiosk_page.locator(
+            '[data-assistant-form] button[type="submit"]',
+        ).click()
+        kiosk_page.wait_for_function(
+            "(count) => window.__schoolAiSpeech.spoken.length > count",
+            arg=first_speech["spokenCount"],
+            timeout=8_000,
+        )
+        active_speech_cancel_count = kiosk_page.evaluate(
+            "() => window.__schoolAiSpeech.cancelCount"
+        )
 
         expect(kiosk_page.locator("[data-idle-view]")).to_be_visible(timeout=20_000)
         expect(kiosk_page.locator("[data-session-view]")).to_be_hidden()
@@ -395,6 +453,10 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             0,
         )
         expect(kiosk_page.locator("[data-assistant-answer]")).to_be_hidden()
+        self.assertGreater(
+            kiosk_page.evaluate("() => window.__schoolAiSpeech.cancelCount"),
+            active_speech_cancel_count,
+        )
 
         for cycle in range(1, 3):
             kiosk_context.set_offline(True)

@@ -452,6 +452,46 @@ class TestSchoolAIAPI(unittest.TestCase):
             ).delete(synchronize_session=False)
             self.db.commit()
 
+    def test_kiosk_query_respects_auto_speak_admin_setting(self):
+        paired = self._pair_pwa("kiosk", "pwa-auto-speak-setting-test")
+        self.assertEqual(paired.status_code, 200, paired.text)
+        csrf_token = self.client.cookies.get("csrf_token")
+        detection = self.client.post(
+            "/api/kiosk/detect",
+            headers={"X-CSRF-Token": csrf_token},
+            json={
+                "badge_token": "SCH-8F3A92C1",
+                "confidence": 0.99,
+            },
+        )
+        self.assertEqual(detection.status_code, 200, detection.text)
+        self.assertEqual(detection.json()["status"], "success")
+
+        setting_key = "features.kiosk_auto_speak_answers"
+        original = get_setting(self.db, setting_key)
+        try:
+            for enabled in (True, False):
+                with self.subTest(enabled=enabled):
+                    update_settings(
+                        self.db,
+                        {setting_key: enabled},
+                        self.staff,
+                    )
+                    response = self.client.post(
+                        "/api/kiosk/query",
+                        headers={"X-CSRF-Token": csrf_token},
+                        json={"text_query": "Кой профил е активен?"},
+                    )
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertIs(response.json()["auto_speak"], enabled)
+        finally:
+            runtime_registry.clear()
+            update_settings(
+                self.db,
+                {setting_key: original},
+                self.staff,
+            )
+
     def test_public_screen_feed_is_scoped_cacheable_and_has_etag(self):
         self.db.add_all([
             Announcement(

@@ -123,6 +123,7 @@ SETTING_DEFINITIONS: tuple[SettingDefinition, ...] = (
     SettingDefinition("assistant.model", "AI асистент", "Модел", "Идентификатор на избрания модел.", "string", Config.GEMINI_MODEL_ID),
     SettingDefinition("assistant.temperature", "AI асистент", "Креативност", "По-ниската стойност дава по-предвидими отговори.", "number", Config.AI_TEMPERATURE, 0, 2),
     SettingDefinition("features.voice_enabled", "Функции", "Гласов асистент", "Разрешава гласови заявки на устройствата.", "boolean", True),
+    SettingDefinition("features.kiosk_auto_speak_answers", "Функции", "Автоматично прочитане в киоска", "Прочита на глас всеки получен отговор на киоска.", "boolean", False),
     SettingDefinition("features.public_stats_enabled", "Функции", "Публична статистика", "Показва обобщени данни на началния екран.", "boolean", True),
     SettingDefinition("privacy.system_events_days", "Поверителност", "Системни събития", "Срок за съхранение в дни.", "integer", 90, 7, 3650),
     SettingDefinition("privacy.audit_days", "Поверителност", "Административен одит", "Срок за съхранение в дни.", "integer", 365, 30, 3650),
