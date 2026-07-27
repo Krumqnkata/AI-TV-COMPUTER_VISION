@@ -253,11 +253,15 @@ def kiosk_query(
     if not bool(get_setting(db, "features.voice_enabled")):
         raise HTTPException(status_code=403, detail="Асистентът е изключен от администратора")
     session = _active_session(db, context, required=False)
-    return handle_voice_command(
+    result = handle_voice_command(
         session.person_id if session else None,
         request.text_query,
         db,
     )
+    result["auto_speak"] = bool(
+        get_setting(db, "features.kiosk_auto_speak_answers")
+    )
+    return result
 
 
 @router.get(

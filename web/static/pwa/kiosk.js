@@ -294,6 +294,33 @@
         assistantAnswer.textContent = "";
     }
 
+    function stopSpeech() {
+        if ("speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+        }
+    }
+
+    function speakText(text) {
+        if (
+            !text
+            || !("speechSynthesis" in window)
+            || !("SpeechSynthesisUtterance" in window)
+        ) {
+            return false;
+        }
+        try {
+            stopSpeech();
+            const utterance = new window.SpeechSynthesisUtterance(text);
+            utterance.lang = "bg-BG";
+            utterance.rate = 0.95;
+            window.speechSynthesis.speak(utterance);
+            return true;
+        } catch (error) {
+            console.warn("Kiosk speech synthesis failed", error);
+            return false;
+        }
+    }
+
     function setAssistantSuggestionStatus(message) {
         assistantSuggestionStatus.textContent = message || "";
         assistantSuggestionStatus.hidden = !message;
@@ -311,6 +338,8 @@
     }
 
     function selectAssistantQuestion(question) {
+        stopSpeech();
+        currentSpeechText = "";
         selectedAssistantQuestion = question;
         assistantInput.value = question.query;
         clearAssistantAnswer();
@@ -427,6 +456,7 @@
             return;
         }
         stopScanner();
+        stopSpeech();
         currentSessionEvent = event;
         currentSpeechText = event.message;
 
@@ -516,9 +546,7 @@
         currentSessionEvent = null;
         currentSpeechText = "";
         window.clearTimeout(idleTimer);
-        if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-        }
+        stopSpeech();
         setText("[data-person-greeting]", "");
         setText("[data-person-detail]", "");
         setText("[data-session-message]", "");
@@ -538,6 +566,8 @@
     }
 
     async function closeSession(notifyServer) {
+        stopSpeech();
+        currentSpeechText = "";
         if (notifyServer !== false) {
             try {
                 await app.api("/api/kiosk/session/close", { method: "POST", body: {} });
@@ -575,6 +605,8 @@
         if (!query) {
             return;
         }
+        stopSpeech();
+        currentSpeechText = "";
         const button = assistantForm.querySelector("button[type='submit']");
         button.disabled = true;
         assistantAnswer.hidden = false;
@@ -584,7 +616,12 @@
                 method: "POST",
                 body: { text_query: query },
             });
-            assistantAnswer.textContent = result.response || "Няма намерен отговор.";
+            const answer = result.response || "Няма намерен отговор.";
+            assistantAnswer.textContent = answer;
+            currentSpeechText = answer;
+            if (result.auto_speak === true) {
+                speakText(answer);
+            }
             resetIdleTimer();
         } catch (error) {
             assistantAnswer.textContent = error instanceof app.ApiError
@@ -673,15 +710,9 @@
     }
 
     function speakSession() {
-        if (!currentSpeechText || !("speechSynthesis" in window)) {
-            return;
+        if (speakText(currentSpeechText)) {
+            resetIdleTimer();
         }
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(currentSpeechText);
-        utterance.lang = "bg-BG";
-        utterance.rate = 0.95;
-        window.speechSynthesis.speak(utterance);
-        resetIdleTimer();
     }
 
     function handleSocketMessage(message) {
@@ -721,6 +752,8 @@
     speakButton.addEventListener("click", speakSession);
     assistantForm.addEventListener("submit", submitAssistant);
     assistantInput.addEventListener("input", () => {
+        stopSpeech();
+        currentSpeechText = "";
         clearAssistantAnswer();
         if (
             selectedAssistantQuestion
