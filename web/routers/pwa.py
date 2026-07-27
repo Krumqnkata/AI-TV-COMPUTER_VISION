@@ -20,6 +20,7 @@ from web.schemas import (
     KioskDetectRequest,
     KioskMessageRequest,
     KioskQueryRequest,
+    KioskQuerySuggestionsResponse,
     PwaPairRequest,
     QRDetectionRequest,
 )
@@ -30,6 +31,7 @@ from web.security import (
 )
 from web.services.admin_control import get_setting
 from web.services.assistant import handle_voice_command
+from web.services.assistant_suggestions import build_kiosk_query_suggestions
 from web.services.badges import process_badge_detection
 from web.services.delivery import acknowledge_delivery
 from web.services.device_control import (
@@ -256,6 +258,29 @@ def kiosk_query(
         request.text_query,
         db,
     )
+
+
+@router.get(
+    "/api/kiosk/query-suggestions",
+    response_model=KioskQuerySuggestionsResponse,
+)
+def kiosk_query_suggestions(
+    response: Response,
+    context: DeviceContext = Depends(require_kiosk),
+    db: Session = Depends(get_db),
+):
+    if not bool(get_setting(db, "features.voice_enabled")):
+        raise HTTPException(
+            status_code=403,
+            detail="Асистентът е изключен от администратора",
+        )
+    session = _active_session(db, context, required=True)
+    assert session is not None
+    person = db.get(Person, session.person_id)
+    if person is None or not person.active:
+        raise HTTPException(status_code=403, detail="Профилът не е активен")
+    response.headers["Cache-Control"] = "no-store"
+    return build_kiosk_query_suggestions(db, person)
 
 
 @router.get("/api/kiosk/recipients")

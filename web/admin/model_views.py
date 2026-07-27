@@ -321,8 +321,8 @@ class DirectoryEntryAdmin(PermissionedModelView, model=DirectoryEntry):
         DirectoryEntry.active,
     ]
     column_labels = {
-        DirectoryEntry.kind: "Тип (напр. faq, телефон, работно време)",
-        DirectoryEntry.name: "Въпрос или име",
+        DirectoryEntry.kind: "Тип (faq = готов въпрос в киоска)",
+        DirectoryEntry.name: "Въпрос или име (видимо при faq)",
         DirectoryEntry.value: "Кратък отговор или стойност",
         DirectoryEntry.details: "Допълнение и ключови думи",
         DirectoryEntry.sort_order: "Ред",

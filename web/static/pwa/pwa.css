@@ -986,6 +986,90 @@ img {
     color: var(--slate-600);
 }
 
+.assistant-picker {
+    margin-top: 1.2rem;
+    padding: clamp(1rem, 2.5vw, 1.4rem);
+    border: 1px solid var(--slate-200);
+    border-radius: var(--radius-md);
+    background: #f7faff;
+}
+
+.assistant-picker__heading h3 {
+    margin: 0;
+    color: var(--navy-900);
+    font-size: clamp(1.15rem, 2vw, 1.4rem);
+}
+
+.assistant-picker__heading p {
+    margin: 0.35rem 0 0;
+    color: var(--slate-600);
+    line-height: 1.5;
+}
+
+.assistant-picker__status {
+    margin: 0.9rem 0 0;
+    color: var(--slate-600);
+    font-weight: 650;
+}
+
+.assistant-category-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: 1rem;
+}
+
+.assistant-category-button {
+    min-height: 48px;
+    padding: 0.65rem 1rem;
+    border: 1px solid #b7d1ec;
+    border-radius: 999px;
+    color: var(--navy-800);
+    background: #fff;
+    font-weight: 750;
+}
+
+.assistant-category-button:hover {
+    border-color: var(--blue-500);
+    background: #edf6ff;
+}
+
+.assistant-category-button[aria-pressed="true"] {
+    border-color: var(--blue-700);
+    color: #fff;
+    background: var(--blue-700);
+}
+
+.assistant-question-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+    margin-top: 0.9rem;
+}
+
+.assistant-question-button {
+    min-height: 64px;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--slate-200);
+    border-radius: var(--radius-sm);
+    color: var(--slate-900);
+    background: #fff;
+    font-weight: 700;
+    line-height: 1.4;
+    text-align: left;
+}
+
+.assistant-question-button:hover {
+    border-color: var(--blue-500);
+    background: #f1f7ff;
+}
+
+.assistant-question-button[aria-pressed="true"] {
+    border-color: var(--cyan-500);
+    background: var(--cyan-100);
+    box-shadow: inset 4px 0 0 var(--cyan-500);
+}
+
 .inline-form {
     display: flex;
     flex-wrap: wrap;
@@ -1490,7 +1574,8 @@ img {
     }
 
     .summary-grid,
-    .personal-card__details {
+    .personal-card__details,
+    .assistant-question-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1554,7 +1639,10 @@ img {
     .profile-card,
     .pair-card,
     .summary-card,
-    .task-card {
+    .task-card,
+    .assistant-picker,
+    .assistant-category-button,
+    .assistant-question-button {
         border: 1px solid CanvasText;
     }
 }

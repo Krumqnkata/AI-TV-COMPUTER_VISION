@@ -165,6 +165,22 @@ class KioskQueryRequest(BaseModel):
         return value
 
 
+class KioskQuerySuggestion(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=150)
+    query: str = Field(min_length=1, max_length=500)
+
+
+class KioskQuerySuggestionCategory(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=100)
+    questions: list[KioskQuerySuggestion] = Field(max_length=20)
+
+
+class KioskQuerySuggestionsResponse(BaseModel):
+    categories: list[KioskQuerySuggestionCategory] = Field(max_length=10)
+
+
 class KioskMessageRequest(BaseModel):
     recipient_id: int
     text: str = Field(min_length=1, max_length=500)
