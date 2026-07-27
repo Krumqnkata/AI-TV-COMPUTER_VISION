@@ -16,6 +16,11 @@
     const speakButton = document.querySelector("[data-speak-session]");
     const assistantForm = document.querySelector("[data-assistant-form]");
     const assistantAnswer = document.querySelector("[data-assistant-answer]");
+    const assistantInput = assistantForm.elements.text_query;
+    const assistantPicker = document.querySelector("[data-assistant-picker]");
+    const assistantCategoryList = document.querySelector("[data-assistant-categories]");
+    const assistantQuestionList = document.querySelector("[data-assistant-questions]");
+    const assistantSuggestionStatus = document.querySelector("[data-assistant-suggestion-status]");
     const recipientSearchForm = document.querySelector("[data-recipient-search-form]");
     const recipientList = document.querySelector("[data-recipient-list]");
     const messageForm = document.querySelector("[data-message-form]");
@@ -34,6 +39,8 @@
     let idleTimer = null;
     let currentSpeechText = "";
     let currentSessionEvent = null;
+    let assistantSuggestionGeneration = 0;
+    let selectedAssistantQuestion = null;
 
     function setText(selector, value) {
         const element = document.querySelector(selector);
@@ -282,6 +289,131 @@
         );
     }
 
+    function clearAssistantAnswer() {
+        assistantAnswer.hidden = true;
+        assistantAnswer.textContent = "";
+    }
+
+    function setAssistantSuggestionStatus(message) {
+        assistantSuggestionStatus.textContent = message || "";
+        assistantSuggestionStatus.hidden = !message;
+    }
+
+    function updateAssistantQuestionSelection() {
+        assistantQuestionList.querySelectorAll("[data-assistant-question]").forEach((button) => {
+            button.setAttribute(
+                "aria-pressed",
+                selectedAssistantQuestion && button.dataset.assistantQuestion === selectedAssistantQuestion.id
+                    ? "true"
+                    : "false"
+            );
+        });
+    }
+
+    function selectAssistantQuestion(question) {
+        selectedAssistantQuestion = question;
+        assistantInput.value = question.query;
+        clearAssistantAnswer();
+        updateAssistantQuestionSelection();
+        assistantInput.focus();
+        assistantInput.setSelectionRange(question.query.length, question.query.length);
+        assistantInput.scrollIntoView({ block: "nearest" });
+        resetIdleTimer();
+    }
+
+    function renderAssistantQuestions(category) {
+        assistantQuestionList.replaceChildren();
+        category.questions.forEach((question) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "assistant-question-button";
+            button.dataset.assistantQuestion = question.id;
+            button.setAttribute("aria-pressed", "false");
+            button.textContent = question.label;
+            button.addEventListener("click", () => selectAssistantQuestion(question));
+            assistantQuestionList.append(button);
+        });
+        updateAssistantQuestionSelection();
+    }
+
+    function activateAssistantCategory(categories, categoryId) {
+        assistantCategoryList.querySelectorAll("[data-assistant-category]").forEach((button) => {
+            button.setAttribute(
+                "aria-pressed",
+                button.dataset.assistantCategory === categoryId ? "true" : "false"
+            );
+        });
+        const category = categories.find((item) => item.id === categoryId);
+        if (category) {
+            renderAssistantQuestions(category);
+        }
+    }
+
+    function renderAssistantSuggestions(rawCategories) {
+        const categories = Array.isArray(rawCategories)
+            ? rawCategories.filter((category) => (
+                category
+                && category.id
+                && Array.isArray(category.questions)
+                && category.questions.length
+            ))
+            : [];
+        assistantCategoryList.replaceChildren();
+        assistantQuestionList.replaceChildren();
+        if (!categories.length) {
+            setAssistantSuggestionStatus(
+                "Няма готови въпроси. Можете да въведете свой въпрос."
+            );
+            return;
+        }
+        setAssistantSuggestionStatus("");
+        categories.forEach((category) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "assistant-category-button";
+            button.dataset.assistantCategory = category.id;
+            button.setAttribute("aria-pressed", "false");
+            button.textContent = category.label;
+            button.addEventListener("click", () => {
+                activateAssistantCategory(categories, category.id);
+                resetIdleTimer();
+            });
+            assistantCategoryList.append(button);
+        });
+        activateAssistantCategory(categories, categories[0].id);
+    }
+
+    function clearAssistantSuggestions() {
+        assistantSuggestionGeneration += 1;
+        selectedAssistantQuestion = null;
+        assistantCategoryList.replaceChildren();
+        assistantQuestionList.replaceChildren();
+        setAssistantSuggestionStatus("");
+        assistantPicker.hidden = true;
+    }
+
+    async function loadAssistantSuggestions() {
+        const generation = ++assistantSuggestionGeneration;
+        assistantPicker.hidden = false;
+        assistantCategoryList.replaceChildren();
+        assistantQuestionList.replaceChildren();
+        setAssistantSuggestionStatus("Зареждаме готовите въпроси…");
+        try {
+            const result = await app.api("/api/kiosk/query-suggestions");
+            if (generation !== assistantSuggestionGeneration || !currentSessionEvent) {
+                return;
+            }
+            renderAssistantSuggestions(result.categories);
+        } catch (_error) {
+            if (generation !== assistantSuggestionGeneration || !currentSessionEvent) {
+                return;
+            }
+            setAssistantSuggestionStatus(
+                "Готовите въпроси не са достъпни. Можете да въведете въпрос ръчно."
+            );
+        }
+    }
+
     function resetIdleTimer() {
         window.clearTimeout(idleTimer);
         const configured = Number(config && config.settings && config.settings.kiosk_idle_seconds);
@@ -311,6 +443,7 @@
         renderMessages(event);
         switchTab("overview");
         resetIdleTimer();
+        loadAssistantSuggestions();
 
         if (event.deliveryId) {
             window.setTimeout(() => {
@@ -392,8 +525,8 @@
         setText("[data-message-count]", "0 съобщения");
         document.querySelector("[data-personal-messages]").replaceChildren();
         document.querySelector("[data-next-class]").replaceChildren();
-        assistantAnswer.hidden = true;
-        assistantAnswer.textContent = "";
+        clearAssistantSuggestions();
+        clearAssistantAnswer();
         assistantForm.reset();
         recipientSearchForm.reset();
         recipientList.replaceChildren();
@@ -587,6 +720,17 @@
     closeButtons.forEach((button) => button.addEventListener("click", () => closeSession(true)));
     speakButton.addEventListener("click", speakSession);
     assistantForm.addEventListener("submit", submitAssistant);
+    assistantInput.addEventListener("input", () => {
+        clearAssistantAnswer();
+        if (
+            selectedAssistantQuestion
+            && assistantInput.value !== selectedAssistantQuestion.query
+        ) {
+            selectedAssistantQuestion = null;
+            updateAssistantQuestionSelection();
+        }
+        resetIdleTimer();
+    });
     recipientSearchForm.addEventListener("submit", (event) => {
         event.preventDefault();
         loadRecipients(recipientSearchForm.elements.q.value.trim());

@@ -1,5 +1,6 @@
 """Isolated API tests backed by an Alembic-built temporary database."""
 
+import json
 import os
 import sys
 import tempfile
@@ -67,6 +68,7 @@ from web.services.admin_control import (  # noqa: E402
     save_secret,
     update_settings,
 )
+from web.services.assistant_suggestions import build_kiosk_query_suggestions  # noqa: E402
 from web.services.backups import create_sqlite_backup, verify_backup  # noqa: E402
 from web.services.device_control import available_safe_commands, create_enrollment_token, queue_command  # noqa: E402
 from web.services.imports import execute_schedule_import, preview_schedule_import  # noqa: E402
@@ -211,6 +213,7 @@ class TestSchoolAIAPI(unittest.TestCase):
         kiosk = self.client.get("/kiosk")
         self.assertEqual(kiosk.status_code, 200)
         self.assertIn('data-profile="kiosk"', kiosk.text)
+        self.assertIn("data-assistant-picker", kiosk.text)
         self.assertIn("camera=(self)", kiosk.headers["permissions-policy"])
         self.assertIn("default-src 'self'", kiosk.headers["content-security-policy"])
 
@@ -283,6 +286,171 @@ class TestSchoolAIAPI(unittest.TestCase):
         )
         self.assertEqual(unpair.status_code, 200)
         self.assertEqual(self.client.get("/api/kiosk/bootstrap").status_code, 401)
+
+    def test_kiosk_query_suggestions_are_role_aware(self):
+        def category(payload: dict, category_id: str) -> dict:
+            return next(
+                item
+                for item in payload["categories"]
+                if item["id"] == category_id
+            )
+
+        student = build_kiosk_query_suggestions(
+            self.db,
+            self._person("Антон Иванов"),
+        )
+        teacher = build_kiosk_query_suggestions(
+            self.db,
+            self._person("Мария Димитрова"),
+        )
+        admin = build_kiosk_query_suggestions(self.db, self.admin)
+        visitor = build_kiosk_query_suggestions(
+            self.db,
+            Person(
+                full_name="Временен посетител",
+                role="visitor",
+                active=True,
+            ),
+        )
+
+        student_categories = {item["id"] for item in student["categories"]}
+        teacher_categories = {item["id"] for item in teacher["categories"]}
+        admin_categories = {item["id"] for item in admin["categories"]}
+        visitor_categories = {item["id"] for item in visitor["categories"]}
+        self.assertIn("schedule", student_categories)
+        self.assertIn("schedule", teacher_categories)
+        self.assertNotIn("schedule", admin_categories)
+        self.assertNotIn("schedule", visitor_categories)
+
+        student_personal_ids = {
+            item["id"] for item in category(student, "personal")["questions"]
+        }
+        teacher_personal_ids = {
+            item["id"] for item in category(teacher, "personal")["questions"]
+        }
+        visitor_personal_ids = {
+            item["id"] for item in category(visitor, "personal")["questions"]
+        }
+        self.assertNotIn("duties-today", student_personal_ids)
+        self.assertIn("duties-today", teacher_personal_ids)
+        self.assertNotIn("duties-today", visitor_personal_ids)
+
+        admin_school_ids = {
+            item["id"] for item in category(admin, "school")["questions"]
+        }
+        visitor_school_ids = {
+            item["id"] for item in category(visitor, "school")["questions"]
+        }
+        self.assertIn("substitutions-today", admin_school_ids)
+        self.assertNotIn("substitutions-today", visitor_school_ids)
+
+    def test_kiosk_query_suggestions_require_session_and_expose_only_faq_questions(self):
+        anonymous = TestClient(app)
+        try:
+            unauthenticated = anonymous.get("/api/kiosk/query-suggestions")
+        finally:
+            anonymous.close()
+        self.assertEqual(unauthenticated.status_code, 401)
+
+        paired = self._pair_pwa("kiosk", "pwa-suggestion-catalog-test")
+        self.assertEqual(paired.status_code, 200, paired.text)
+        without_session = self.client.get("/api/kiosk/query-suggestions")
+        self.assertEqual(without_session.status_code, 403)
+
+        entries = [
+            DirectoryEntry(
+                kind=" FAQ ",
+                name="Кога отваря библиотеката?",
+                value="Скрита стойност: библиотеката отваря в 08:15 ч.",
+                details="Скрити ключови думи за библиотеката.",
+                sort_order=-20,
+                active=True,
+            ),
+            DirectoryEntry(
+                kind="faq",
+                name="Кой профил е активен?",
+                value="Този FAQ дублира вграден въпрос.",
+                sort_order=-19,
+                active=True,
+            ),
+            DirectoryEntry(
+                kind="faq",
+                name="Неактивен тестов въпрос?",
+                value="Не трябва да се показва.",
+                sort_order=-18,
+                active=False,
+            ),
+            DirectoryEntry(
+                kind="телефон",
+                name="Телефон на канцеларията",
+                value="000 000 000",
+                sort_order=-17,
+                active=True,
+            ),
+        ]
+        entries.extend(
+            DirectoryEntry(
+                kind="faq",
+                name=f"Допълнителен FAQ въпрос {index:02d}?",
+                value=f"Отговор {index:02d}",
+                sort_order=index,
+                active=True,
+            )
+            for index in range(15)
+        )
+        self.db.add_all(entries)
+        self.db.commit()
+        entry_ids = [entry.id for entry in entries]
+
+        try:
+            csrf_token = self.client.cookies.get("csrf_token")
+            detection = self.client.post(
+                "/api/kiosk/detect",
+                headers={"X-CSRF-Token": csrf_token},
+                json={
+                    "badge_token": "SCH-8F3A92C1",
+                    "confidence": 0.99,
+                },
+            )
+            self.assertEqual(detection.status_code, 200, detection.text)
+            self.assertEqual(detection.json()["status"], "success")
+
+            response = self.client.get("/api/kiosk/query-suggestions")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.headers["cache-control"], "no-store")
+            payload = response.json()
+            faq = next(
+                item for item in payload["categories"] if item["id"] == "faq"
+            )
+            self.assertEqual(len(faq["questions"]), 12)
+            self.assertEqual(
+                faq["questions"][0],
+                {
+                    "id": f"faq-{entries[0].id}",
+                    "label": "Кога отваря библиотеката?",
+                    "query": "Кога отваря библиотеката?",
+                },
+            )
+            faq_labels = {item["label"] for item in faq["questions"]}
+            self.assertNotIn("Кой профил е активен?", faq_labels)
+            self.assertNotIn("Неактивен тестов въпрос?", faq_labels)
+            self.assertNotIn("Телефон на канцеларията", faq_labels)
+            serialized = json.dumps(payload, ensure_ascii=False)
+            self.assertNotIn("Скрита стойност", serialized)
+            self.assertNotIn("Скрити ключови думи", serialized)
+
+            with patch(
+                "web.routers.pwa.get_setting",
+                return_value=False,
+            ):
+                disabled = self.client.get("/api/kiosk/query-suggestions")
+            self.assertEqual(disabled.status_code, 403)
+        finally:
+            runtime_registry.clear()
+            self.db.query(DirectoryEntry).filter(
+                DirectoryEntry.id.in_(entry_ids)
+            ).delete(synchronize_session=False)
+            self.db.commit()
 
     def test_public_screen_feed_is_scoped_cacheable_and_has_etag(self):
         self.db.add_all([

@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from engine.admin_models import Announcement
+from engine.admin_models import Announcement, DirectoryEntry
 from engine.auth import get_password_hash
 from engine.db import InteractionPoint, Person, now_bg
 from tests.fixtures import seed_test_data
@@ -80,6 +80,14 @@ def main() -> None:
             priority="normal",
             publish_from=now_bg(),
             published=True,
+        ))
+        db.add(DirectoryEntry(
+            kind="faq",
+            name="Кога отваря библиотеката?",
+            value="Библиотеката отваря в 08:15 ч.",
+            details="Работно време на библиотеката.",
+            sort_order=1,
+            active=True,
         ))
         db.commit()
         print(json.dumps({

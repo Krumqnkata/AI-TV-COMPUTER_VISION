@@ -130,6 +130,15 @@
                         <p class="eyebrow">Училищен асистент</p>
                         <h2>Какво искате да разберете?</h2>
                         <p>Попитайте за разписание, задача, кабинет, заместване, клуб, обява или съобщение.</p>
+                        <section class="assistant-picker" data-assistant-picker hidden aria-labelledby="assistant-picker-title">
+                            <div class="assistant-picker__heading">
+                                <h3 id="assistant-picker-title">Изберете готов въпрос</h3>
+                                <p>Докоснете въпрос, редактирайте го при нужда и натиснете „Попитай“.</p>
+                            </div>
+                            <p class="assistant-picker__status" data-assistant-suggestion-status hidden aria-live="polite"></p>
+                            <div class="assistant-category-list" data-assistant-categories role="group" aria-label="Категории въпроси"></div>
+                            <div class="assistant-question-grid" data-assistant-questions aria-live="polite"></div>
+                        </section>
                         <form class="inline-form" data-assistant-form>
                             <label class="field field--grow">
                                 <span>Вашият въпрос</span>

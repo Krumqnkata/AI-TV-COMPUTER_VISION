@@ -356,9 +356,45 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
         self.assertFalse(any("Антон" in value for value in local_values))
         self.assertFalse(any("учителската" in value for value in local_values))
 
+        kiosk_page.locator('[data-session-tab="assistant"]').click()
+        expect(kiosk_page.locator("[data-assistant-picker]")).to_be_visible(
+            timeout=8_000,
+        )
+        faq_category = kiosk_page.locator(
+            '[data-assistant-category="faq"]',
+        )
+        expect(faq_category).to_be_visible(timeout=8_000)
+        faq_category.click()
+        faq_question = kiosk_page.locator(
+            "[data-assistant-question]",
+        ).filter(has_text="Кога отваря библиотеката?")
+        expect(faq_question).to_be_visible()
+        faq_question.click()
+        assistant_input = kiosk_page.locator(
+            '[data-assistant-form] input[name="text_query"]',
+        )
+        expect(assistant_input).to_have_value("Кога отваря библиотеката?")
+        expect(kiosk_page.locator("[data-assistant-answer]")).to_be_hidden()
+
+        assistant_input.fill("Кога отваря библиотеката")
+        expect(faq_question).to_have_attribute("aria-pressed", "false")
+        kiosk_page.locator(
+            '[data-assistant-form] button[type="submit"]',
+        ).click()
+        expect(kiosk_page.locator("[data-assistant-answer]")).to_contain_text(
+            "08:15",
+            timeout=8_000,
+        )
+
         expect(kiosk_page.locator("[data-idle-view]")).to_be_visible(timeout=20_000)
         expect(kiosk_page.locator("[data-session-view]")).to_be_hidden()
         self.assertEqual(kiosk_page.locator("[data-person-greeting]").text_content(), "")
+        self.assertEqual(assistant_input.input_value(), "")
+        self.assertEqual(
+            kiosk_page.locator("[data-assistant-questions]").locator("button").count(),
+            0,
+        )
+        expect(kiosk_page.locator("[data-assistant-answer]")).to_be_hidden()
 
         for cycle in range(1, 3):
             kiosk_context.set_offline(True)
