@@ -13,6 +13,10 @@ from web.connections import connection_manager
 from web.services.admin_control import get_setting
 
 
+_AI_PROVIDERS = ("gemini", "ollama", "unknown")
+_AI_OUTCOMES = ("success", "error", "rate_limited", "circuit_open")
+
+
 def _status_class(status_code: int) -> str:
     value = max(0, min(int(status_code), 999))
     return f"{value // 100}xx"
@@ -29,6 +33,10 @@ class MetricsRegistry:
         self._http_duration_count = 0
         self._http_duration_max = 0.0
         self._qr_results: dict[str, int] = defaultdict(int)
+        self._ai_requests: dict[tuple[str, str], int] = defaultdict(int)
+        self._ai_duration_sum: dict[str, float] = defaultdict(float)
+        self._ai_duration_count: dict[str, int] = defaultdict(int)
+        self._ai_duration_max: dict[str, float] = defaultdict(float)
 
     def record_http(self, method: str, status_code: int, duration_seconds: float) -> None:
         method_label = method.upper() if method.upper() in {
@@ -48,6 +56,25 @@ class MetricsRegistry:
         with self._lock:
             self._qr_results[label] += 1
 
+    def record_ai_request(
+        self,
+        provider: str,
+        outcome: str,
+        duration_seconds: float,
+    ) -> None:
+        """Record an external AI attempt using only bounded operational labels."""
+        provider_label = provider if provider in _AI_PROVIDERS else "unknown"
+        outcome_label = outcome if outcome in _AI_OUTCOMES else "error"
+        duration = max(0.0, float(duration_seconds))
+        with self._lock:
+            self._ai_requests[(provider_label, outcome_label)] += 1
+            self._ai_duration_sum[provider_label] += duration
+            self._ai_duration_count[provider_label] += 1
+            self._ai_duration_max[provider_label] = max(
+                self._ai_duration_max[provider_label],
+                duration,
+            )
+
     def snapshot(self) -> dict:
         with self._lock:
             return {
@@ -57,6 +84,10 @@ class MetricsRegistry:
                 "http_duration_count": self._http_duration_count,
                 "http_duration_max": self._http_duration_max,
                 "qr_results": dict(self._qr_results),
+                "ai_requests": dict(self._ai_requests),
+                "ai_duration_sum": dict(self._ai_duration_sum),
+                "ai_duration_count": dict(self._ai_duration_count),
+                "ai_duration_max": dict(self._ai_duration_max),
             }
 
     def reset(self) -> None:
@@ -68,6 +99,10 @@ class MetricsRegistry:
             self._http_duration_count = 0
             self._http_duration_max = 0.0
             self._qr_results.clear()
+            self._ai_requests.clear()
+            self._ai_duration_sum.clear()
+            self._ai_duration_count.clear()
+            self._ai_duration_max.clear()
 
 
 metrics_registry = MetricsRegistry()
@@ -126,6 +161,42 @@ def render_prometheus_metrics(db: Session) -> str:
     for result in ("success", "ignored", "error"):
         lines.append(
             f'school_ai_qr_results_total{{result="{result}"}} {process["qr_results"].get(result, 0)}',
+        )
+    lines.extend([
+        "# HELP school_ai_ai_requests_total External AI request outcomes.",
+        "# TYPE school_ai_ai_requests_total counter",
+    ])
+    for provider in _AI_PROVIDERS:
+        for outcome in _AI_OUTCOMES:
+            lines.append(
+                "school_ai_ai_requests_total"
+                f'{{provider="{provider}",outcome="{outcome}"}} '
+                f'{process["ai_requests"].get((provider, outcome), 0)}',
+            )
+    lines.extend([
+        "# HELP school_ai_ai_request_duration_seconds External AI request duration by provider.",
+        "# TYPE school_ai_ai_request_duration_seconds summary",
+    ])
+    for provider in _AI_PROVIDERS:
+        lines.append(
+            "school_ai_ai_request_duration_seconds_sum"
+            f'{{provider="{provider}"}} '
+            f'{process["ai_duration_sum"].get(provider, 0.0):.6f}',
+        )
+        lines.append(
+            "school_ai_ai_request_duration_seconds_count"
+            f'{{provider="{provider}"}} '
+            f'{process["ai_duration_count"].get(provider, 0)}',
+        )
+    lines.extend([
+        "# HELP school_ai_ai_request_duration_seconds_max Longest external AI request by provider.",
+        "# TYPE school_ai_ai_request_duration_seconds_max gauge",
+    ])
+    for provider in _AI_PROVIDERS:
+        lines.append(
+            "school_ai_ai_request_duration_seconds_max"
+            f'{{provider="{provider}"}} '
+            f'{process["ai_duration_max"].get(provider, 0.0):.6f}',
         )
     lines.extend([
         "# HELP school_ai_active_websockets Active device WebSocket connections in this process.",

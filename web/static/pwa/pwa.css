@@ -1089,6 +1089,76 @@ img {
     line-height: 1.6;
 }
 
+.assistant-answer__text {
+    white-space: pre-wrap;
+}
+
+.assistant-speech-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(24, 64, 92, 0.18);
+    font-size: 0.92rem;
+}
+
+.assistant-voice-field {
+    display: grid;
+    flex: 1 1 230px;
+    gap: 0.35rem;
+    max-width: 390px;
+    color: var(--slate-700);
+    font-size: 0.85rem;
+    font-weight: 750;
+}
+
+.assistant-voice-field select {
+    min-height: 44px;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--slate-300);
+    border-radius: var(--radius-sm);
+    color: var(--navy-900);
+    background: #fff;
+    font: inherit;
+}
+
+.assistant-speech-status {
+    align-self: center;
+    color: var(--slate-700);
+    font-size: 0.88rem;
+    font-weight: 750;
+}
+
+.assistant-speech-status[data-state="speaking"] {
+    color: var(--navy-900);
+}
+
+.assistant-speech-status[data-state="error"],
+.assistant-speech-warning {
+    color: #8a3b19;
+}
+
+.assistant-speech-warning,
+.assistant-speech-privacy {
+    margin: 0.85rem 0 0;
+    padding: 0.7rem 0.8rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.88rem;
+    line-height: 1.45;
+}
+
+.assistant-speech-warning {
+    background: #fff3d7;
+}
+
+.assistant-speech-privacy {
+    color: var(--navy-900);
+    background: rgba(255, 255, 255, 0.72);
+    box-shadow: inset 3px 0 0 var(--navy-700);
+}
+
 .recipient-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1640,9 +1710,11 @@ img {
     .pair-card,
     .summary-card,
     .task-card,
+    .answer-card,
     .assistant-picker,
     .assistant-category-button,
-    .assistant-question-button {
+    .assistant-question-button,
+    .assistant-voice-field select {
         border: 1px solid CanvasText;
     }
 }

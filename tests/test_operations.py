@@ -101,6 +101,12 @@ class TestMetricsRegistry(unittest.TestCase):
         registry.record_http("BREW", 503, 0.4)
         registry.record_qr_result("success")
         registry.record_qr_result("unexpected-secret-value")
+        registry.record_ai_request("gemini", "success", 0.3)
+        registry.record_ai_request(
+            "unexpected-secret-provider",
+            "unexpected-secret-outcome",
+            0.5,
+        )
 
         snapshot = registry.snapshot()
         self.assertEqual(snapshot["http_requests"][("GET", "2xx")], 1)
@@ -108,7 +114,12 @@ class TestMetricsRegistry(unittest.TestCase):
         self.assertEqual(snapshot["http_errors"], 1)
         self.assertEqual(snapshot["qr_results"]["success"], 1)
         self.assertEqual(snapshot["qr_results"]["error"], 1)
+        self.assertEqual(snapshot["ai_requests"][("gemini", "success")], 1)
+        self.assertEqual(snapshot["ai_requests"][("unknown", "error")], 1)
+        self.assertEqual(snapshot["ai_duration_count"]["gemini"], 1)
         self.assertNotIn("unexpected-secret-value", repr(snapshot))
+        self.assertNotIn("unexpected-secret-provider", repr(snapshot))
+        self.assertNotIn("unexpected-secret-outcome", repr(snapshot))
 
 
 class TestReconnectLoadBaseline(unittest.TestCase):

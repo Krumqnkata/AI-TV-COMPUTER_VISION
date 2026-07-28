@@ -207,7 +207,10 @@ business данни.
 
 - [ ] Push-to-talk STT с локален Whisper service, видима microphone индикация,
   consent, rate limits и кратка/нулева audio retention.
-- [ ] Gemini или локален Ollama provider след privacy и quality оценка.
+- [ ] Production активиране на Gemini или локален Ollama след privacy и quality
+  оценка. Софтуерната интеграция вече има отделни модели, encrypted keys,
+  connection test, timeout, rate limit, circuit breaker и безопасни metrics;
+  rule-based режимът остава default до оценката.
 - [ ] Native Android приложение само ако PWA и малкият camera wrapper не дават
   достатъчна надеждност или device management.
 - [ ] Повече Uvicorn workers/Redis само след измерен капацитетен проблем.

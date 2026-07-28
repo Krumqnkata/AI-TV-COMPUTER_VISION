@@ -1,6 +1,6 @@
 # Прогрес по School AI
 
-**Последна проверка:** 27 юли 2026 г.
+**Последна проверка:** 28 юли 2026 г.
 
 ## Текуща стабилна основа
 
@@ -43,8 +43,8 @@
   успешните статични asset заявки. Query/body, credentials и лични съобщения
   не се записват.
 - `/health/metrics` предоставя агрегирани HTTP error/latency, WebSocket,
-  offline-device, QR и delayed-ACK метрики, а Nginx шаблонът го ограничава до
-  локален monitoring.
+  offline-device, QR, delayed-ACK и bounded AI provider/outcome/latency метрики,
+  а Nginx шаблонът го ограничава до локален monitoring.
 - Disk space и failed/stale maintenance задачите се показват като operational
   warnings. Daily persistent systemd timer изпълнява audited backup и
   retention jobs.
@@ -55,6 +55,10 @@
   склонения и малки печатни/STT грешки за всички управлявани училищни справки.
   Активните записи в „Училищен указател и FAQ“ служат като разширяема
   knowledge база без промяна на кода.
+- Gemini и Ollama имат отделни модели, encrypted keys, безопасен connection
+  test, timeout, rate limit, circuit breaker и privacy-safe runtime статус.
+- Киоскът предлага role-based готови въпроси и FAQ, а TTS има bg-BG избор,
+  ръчно прочитане/спиране и забрана за автоматично четене на лични отговори.
 - Добавени са 100-device/5-round reconnect baseline и operational runbook за
   restart, backup, restore, lost key и offline tablet.
 - `main` има branch protection със strict required Python, dependency, PWA и
@@ -64,7 +68,7 @@
 
 ## Проверено
 
-- 75 теста се откриват локално: 73 минават, а live PostgreSQL и browser
+- 85 теста се откриват локално: 83 минават, а live PostgreSQL и browser
   acceptance са коректно opt-in и са пропуснати в обикновения SQLite run.
 - Отделният пълен Chromium acceptance минава през pairing, public feed, QR
   session, targeted delivery, remote command wake-up/ACK, storage privacy,
@@ -72,7 +76,7 @@
   минава локално.
 - CI е разширен с Chromium full acceptance и Firefox, WebKit и Windows Edge
   smoke jobs.
-- 71 Python файла преминават syntax проверка, а шестте PWA JavaScript файла
+- 73 Python файла преминават syntax проверка, а петте PWA JavaScript файла
   преминават `node --check`.
 - Покрити са fresh migration, legacy upgrade, вече stamped database и отказ при outdated schema.
 - Покрити са REST, CSRF, Argon2, RBAC, encrypted secrets, device lifecycle, WebSocket targeting, imports, privacy и backups.

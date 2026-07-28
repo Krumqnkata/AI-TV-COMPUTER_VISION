@@ -146,7 +146,26 @@
                             </label>
                             <button class="button button--primary" type="submit">Попитай</button>
                         </form>
-                        <div class="answer-card" data-assistant-answer hidden aria-live="polite"></div>
+                        <div class="answer-card" data-assistant-answer hidden>
+                            <div class="assistant-answer__text" data-assistant-answer-text aria-live="polite"></div>
+                            <div class="assistant-speech-controls" data-speech-controls hidden>
+                                <button class="button button--secondary" type="button" data-read-answer>
+                                    Прочети отговора
+                                </button>
+                                <button class="button button--secondary" type="button" data-stop-answer hidden>
+                                    Спри четенето
+                                </button>
+                                <label class="assistant-voice-field">
+                                    <span>Български глас</span>
+                                    <select data-speech-voice aria-label="Избор на български глас"></select>
+                                </label>
+                                <span class="assistant-speech-status" data-speech-status hidden aria-live="polite"></span>
+                            </div>
+                            <p class="assistant-speech-warning" data-speech-warning hidden aria-live="polite"></p>
+                            <p class="assistant-speech-privacy" data-speech-privacy hidden>
+                                Това е персонализиран отговор. Прочетете го на глас само ако средата е подходяща.
+                            </p>
+                        </div>
                     </div>
                 </section>
 

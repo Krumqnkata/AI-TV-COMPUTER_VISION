@@ -16,6 +16,14 @@
     const speakButton = document.querySelector("[data-speak-session]");
     const assistantForm = document.querySelector("[data-assistant-form]");
     const assistantAnswer = document.querySelector("[data-assistant-answer]");
+    const assistantAnswerText = document.querySelector("[data-assistant-answer-text]");
+    const speechControls = document.querySelector("[data-speech-controls]");
+    const readAnswerButton = document.querySelector("[data-read-answer]");
+    const stopAnswerButton = document.querySelector("[data-stop-answer]");
+    const speechVoiceSelect = document.querySelector("[data-speech-voice]");
+    const speechStatus = document.querySelector("[data-speech-status]");
+    const speechWarning = document.querySelector("[data-speech-warning]");
+    const speechPrivacy = document.querySelector("[data-speech-privacy]");
     const assistantInput = assistantForm.elements.text_query;
     const assistantPicker = document.querySelector("[data-assistant-picker]");
     const assistantCategoryList = document.querySelector("[data-assistant-categories]");
@@ -41,6 +49,8 @@
     let currentSessionEvent = null;
     let assistantSuggestionGeneration = 0;
     let selectedAssistantQuestion = null;
+    let availableSpeechVoices = [];
+    let activeSpeechUtterance = null;
 
     function setText(selector, value) {
         const element = document.querySelector(selector);
@@ -289,33 +299,171 @@
         );
     }
 
-    function clearAssistantAnswer() {
-        assistantAnswer.hidden = true;
-        assistantAnswer.textContent = "";
+    function hasSpeechSupport() {
+        return (
+            "speechSynthesis" in window
+            && "SpeechSynthesisUtterance" in window
+        );
     }
 
-    function stopSpeech() {
-        if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
+    function setSpeechStatus(message, state) {
+        speechStatus.textContent = message || "";
+        speechStatus.hidden = !message;
+        if (state) {
+            speechStatus.dataset.state = state;
+        } else {
+            delete speechStatus.dataset.state;
         }
+    }
+
+    function speechVoiceId(voice) {
+        return voice.voiceURI || `${voice.name}::${voice.lang}`;
+    }
+
+    function refreshSpeechControls(isSpeaking) {
+        const supported = hasSpeechSupport();
+        readAnswerButton.disabled = !supported || !currentSpeechText || isSpeaking;
+        stopAnswerButton.hidden = !isSpeaking;
+        speechVoiceSelect.disabled = isSpeaking || !availableSpeechVoices.length;
+    }
+
+    function loadSpeechVoices() {
+        const previousVoiceId = speechVoiceSelect.value;
+        speechVoiceSelect.replaceChildren();
+        availableSpeechVoices = [];
+        if (!hasSpeechSupport()) {
+            const option = document.createElement("option");
+            option.textContent = "Не се поддържа";
+            option.value = "";
+            speechVoiceSelect.append(option);
+            speechWarning.textContent = "Този браузър не поддържа прочитане на глас.";
+            speechWarning.hidden = false;
+            refreshSpeechControls(false);
+            return;
+        }
+
+        let voices = [];
+        try {
+            voices = window.speechSynthesis.getVoices();
+        } catch (error) {
+            console.warn("Could not enumerate speech synthesis voices", error);
+        }
+        availableSpeechVoices = voices.filter(
+            (voice) => String(voice.lang || "").toLowerCase().startsWith("bg")
+        );
+        if (!availableSpeechVoices.length) {
+            const option = document.createElement("option");
+            option.textContent = voices.length
+                ? "Системен глас"
+                : "Изчакване на системните гласове";
+            option.value = "";
+            speechVoiceSelect.append(option);
+            speechWarning.textContent = (
+                "Няма наличен български глас. Браузърът ще опита със системния "
+                + "глас; инсталирайте bg-BG глас за по-добро произношение."
+            );
+            speechWarning.hidden = false;
+            refreshSpeechControls(false);
+            return;
+        }
+
+        availableSpeechVoices.forEach((voice) => {
+            const option = document.createElement("option");
+            option.value = speechVoiceId(voice);
+            option.textContent = `${voice.name} (${voice.lang})`;
+            speechVoiceSelect.append(option);
+        });
+        const preferred = availableSpeechVoices.find(
+            (voice) => speechVoiceId(voice) === previousVoiceId
+        ) || availableSpeechVoices.find(
+            (voice) => String(voice.lang).toLowerCase() === "bg-bg"
+        ) || availableSpeechVoices[0];
+        speechVoiceSelect.value = speechVoiceId(preferred);
+        speechWarning.textContent = "";
+        speechWarning.hidden = true;
+        refreshSpeechControls(false);
+    }
+
+    function selectedSpeechVoice() {
+        return availableSpeechVoices.find(
+            (voice) => speechVoiceId(voice) === speechVoiceSelect.value
+        ) || availableSpeechVoices[0] || null;
+    }
+
+    function configureUtteranceVoice(utterance) {
+        const voice = selectedSpeechVoice();
+        if (voice) {
+            utterance.voice = voice;
+            utterance.lang = voice.lang;
+        } else {
+            utterance.lang = "bg-BG";
+        }
+        utterance.rate = 0.95;
+    }
+
+    function clearAssistantAnswer() {
+        assistantAnswer.hidden = true;
+        assistantAnswerText.textContent = "";
+        speechControls.hidden = true;
+        speechPrivacy.hidden = true;
+        setSpeechStatus("");
+        refreshSpeechControls(false);
+    }
+
+    function stopSpeech(statusMessage) {
+        activeSpeechUtterance = null;
+        if ("speechSynthesis" in window) {
+            try {
+                window.speechSynthesis.cancel();
+            } catch (error) {
+                console.warn("Could not stop speech synthesis", error);
+            }
+        }
+        refreshSpeechControls(false);
+        setSpeechStatus(statusMessage || "");
     }
 
     function speakText(text) {
-        if (
-            !text
-            || !("speechSynthesis" in window)
-            || !("SpeechSynthesisUtterance" in window)
-        ) {
+        if (!text || !hasSpeechSupport()) {
+            setSpeechStatus("Прочитането на глас не се поддържа.", "error");
             return false;
         }
+        stopSpeech();
         try {
-            stopSpeech();
             const utterance = new window.SpeechSynthesisUtterance(text);
-            utterance.lang = "bg-BG";
-            utterance.rate = 0.95;
+            configureUtteranceVoice(utterance);
+            activeSpeechUtterance = utterance;
+            utterance.onstart = () => {
+                if (activeSpeechUtterance !== utterance) {
+                    return;
+                }
+                refreshSpeechControls(true);
+                setSpeechStatus("Чете…", "speaking");
+            };
+            utterance.onend = () => {
+                if (activeSpeechUtterance !== utterance) {
+                    return;
+                }
+                activeSpeechUtterance = null;
+                refreshSpeechControls(false);
+                setSpeechStatus("Отговорът е прочетен.", "complete");
+            };
+            utterance.onerror = () => {
+                if (activeSpeechUtterance !== utterance) {
+                    return;
+                }
+                activeSpeechUtterance = null;
+                refreshSpeechControls(false);
+                setSpeechStatus("Прочитането не бе успешно.", "error");
+            };
+            refreshSpeechControls(true);
+            setSpeechStatus("Подготовка за прочитане…", "speaking");
             window.speechSynthesis.speak(utterance);
             return true;
         } catch (error) {
+            activeSpeechUtterance = null;
+            refreshSpeechControls(false);
+            setSpeechStatus("Прочитането не бе успешно.", "error");
             console.warn("Kiosk speech synthesis failed", error);
             return false;
         }
@@ -609,24 +757,30 @@
         currentSpeechText = "";
         const button = assistantForm.querySelector("button[type='submit']");
         button.disabled = true;
+        clearAssistantAnswer();
         assistantAnswer.hidden = false;
-        assistantAnswer.textContent = "Търсим отговор…";
+        assistantAnswerText.textContent = "Търсим отговор…";
         try {
             const result = await app.api("/api/kiosk/query", {
                 method: "POST",
                 body: { text_query: query },
             });
             const answer = result.response || "Няма намерен отговор.";
-            assistantAnswer.textContent = answer;
+            assistantAnswerText.textContent = answer;
             currentSpeechText = answer;
+            speechControls.hidden = false;
+            speechPrivacy.hidden = result.speech_policy !== "manual_only";
+            refreshSpeechControls(false);
             if (result.auto_speak === true) {
                 speakText(answer);
             }
             resetIdleTimer();
         } catch (error) {
-            assistantAnswer.textContent = error instanceof app.ApiError
+            assistantAnswerText.textContent = error instanceof app.ApiError
                 ? error.message
                 : "Въпросът не може да бъде изпратен в момента.";
+            speechControls.hidden = true;
+            speechPrivacy.hidden = true;
         } finally {
             button.disabled = false;
         }
@@ -750,6 +904,19 @@
     });
     closeButtons.forEach((button) => button.addEventListener("click", () => closeSession(true)));
     speakButton.addEventListener("click", speakSession);
+    readAnswerButton.addEventListener("click", () => {
+        if (speakText(currentSpeechText)) {
+            resetIdleTimer();
+        }
+    });
+    stopAnswerButton.addEventListener("click", () => {
+        stopSpeech("Четенето е спряно.");
+        resetIdleTimer();
+    });
+    speechVoiceSelect.addEventListener("change", () => {
+        setSpeechStatus("Избраният глас ще се използва при следващото прочитане.");
+        resetIdleTimer();
+    });
     assistantForm.addEventListener("submit", submitAssistant);
     assistantInput.addEventListener("input", () => {
         stopSpeech();
@@ -799,7 +966,7 @@
             showCameraMessage("Тест на камерата — покажете QR код в рамката");
         } else if (command === "test_audio" && "speechSynthesis" in window) {
             const utterance = new SpeechSynthesisUtterance("Звуковият тест на киоска е успешен.");
-            utterance.lang = "bg-BG";
+            configureUtteranceVoice(utterance);
             window.speechSynthesis.speak(utterance);
         } else if (command === "test_screen") {
             showCameraMessage("Екранът на киоска работи.");
@@ -835,6 +1002,18 @@
             profileController.destroy();
         }
     });
+
+    loadSpeechVoices();
+    if (hasSpeechSupport()) {
+        if (typeof window.speechSynthesis.addEventListener === "function") {
+            window.speechSynthesis.addEventListener(
+                "voiceschanged",
+                loadSpeechVoices
+            );
+        } else {
+            window.speechSynthesis.onvoiceschanged = loadSpeechVoices;
+        }
+    }
 
     app.bootProfile("kiosk", handleSocketMessage)
         .then((controller) => {
