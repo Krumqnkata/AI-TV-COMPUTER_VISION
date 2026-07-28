@@ -299,12 +299,26 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
         kiosk_context.add_init_script(
             """
             (() => {
-                window.__schoolAiSpeech = { cancelCount: 0, spoken: [] };
+                window.__schoolAiSpeech = {
+                    cancelCount: 0,
+                    spoken: [],
+                    spokenVoices: [],
+                };
+                const bulgarianVoice = {
+                    name: "Playwright Bulgarian",
+                    lang: "bg-BG",
+                    voiceURI: "playwright-bg-BG",
+                    default: true,
+                };
                 class MockSpeechSynthesisUtterance {
                     constructor(text) {
                         this.text = text;
                         this.lang = "";
                         this.rate = 1;
+                        this.voice = null;
+                        this.onstart = null;
+                        this.onend = null;
+                        this.onerror = null;
                     }
                 }
                 Object.defineProperty(window, "SpeechSynthesisUtterance", {
@@ -319,6 +333,21 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
                         },
                         speak(utterance) {
                             window.__schoolAiSpeech.spoken.push(utterance.text);
+                            window.__schoolAiSpeech.spokenVoices.push({
+                                lang: utterance.lang,
+                                name: utterance.voice ? utterance.voice.name : "",
+                            });
+                            if (typeof utterance.onstart === "function") {
+                                utterance.onstart();
+                            }
+                        },
+                        getVoices() {
+                            return [bulgarianVoice];
+                        },
+                        addEventListener(name, callback) {
+                            if (name === "voiceschanged") {
+                                window.setTimeout(callback, 0);
+                            }
                         },
                     },
                 });
@@ -419,6 +448,15 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             ".some((text) => text.includes('08:15'))",
             timeout=8_000,
         )
+        expect(kiosk_page.locator("[data-speech-voice]")).to_have_value(
+            "playwright-bg-BG",
+        )
+        expect(kiosk_page.locator("[data-speech-privacy]")).to_be_hidden()
+        selected_voice = kiosk_page.evaluate(
+            "() => window.__schoolAiSpeech.spokenVoices.at(-1)"
+        )
+        self.assertEqual(selected_voice["lang"], "bg-BG")
+        self.assertEqual(selected_voice["name"], "Playwright Bulgarian")
         first_speech = kiosk_page.evaluate(
             "() => ({"
             " cancelCount: window.__schoolAiSpeech.cancelCount,"
@@ -426,7 +464,7 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
             "})"
         )
 
-        assistant_input.fill("Какви събития предстоят?")
+        assistant_input.fill("Кой профил е активен?")
         kiosk_page.wait_for_function(
             "(count) => window.__schoolAiSpeech.cancelCount > count",
             arg=first_speech["cancelCount"],
@@ -435,11 +473,49 @@ class TestPwaBrowserAcceptance(unittest.TestCase):
         kiosk_page.locator(
             '[data-assistant-form] button[type="submit"]',
         ).click()
+        expect(kiosk_page.locator("[data-assistant-answer]")).to_contain_text(
+            "Влезли сте като",
+            timeout=8_000,
+        )
+        expect(kiosk_page.locator("[data-speech-privacy]")).to_be_visible()
+        kiosk_page.wait_for_timeout(250)
+        self.assertEqual(
+            kiosk_page.evaluate(
+                "() => window.__schoolAiSpeech.spoken.length"
+            ),
+            first_speech["spokenCount"],
+        )
+        expect(kiosk_page.locator("[data-read-answer]")).to_be_enabled()
+        expect(kiosk_page.locator("[data-stop-answer]")).to_be_hidden()
+        kiosk_page.locator("[data-read-answer]").click()
         kiosk_page.wait_for_function(
             "(count) => window.__schoolAiSpeech.spoken.length > count",
             arg=first_speech["spokenCount"],
             timeout=8_000,
         )
+        expect(kiosk_page.locator("[data-stop-answer]")).to_be_visible()
+        expect(kiosk_page.locator("[data-speech-status]")).to_contain_text(
+            "Чете",
+        )
+        manual_speech_count = kiosk_page.evaluate(
+            "() => window.__schoolAiSpeech.spoken.length"
+        )
+        kiosk_page.locator("[data-stop-answer]").click()
+        expect(kiosk_page.locator("[data-stop-answer]")).to_be_hidden()
+        expect(kiosk_page.locator("[data-speech-status]")).to_contain_text(
+            "спряно",
+        )
+
+        assistant_input.fill("Какви събития предстоят?")
+        kiosk_page.locator(
+            '[data-assistant-form] button[type="submit"]',
+        ).click()
+        kiosk_page.wait_for_function(
+            "(count) => window.__schoolAiSpeech.spoken.length > count",
+            arg=manual_speech_count,
+            timeout=8_000,
+        )
+        expect(kiosk_page.locator("[data-speech-privacy]")).to_be_hidden()
         active_speech_cancel_count = kiosk_page.evaluate(
             "() => window.__schoolAiSpeech.cancelCount"
         )

@@ -54,6 +54,19 @@ _ROLE_AUDIENCES = {
     "admin": {"admin", "admins", "администратор", "администратори"},
     "guest": {"guest", "guests", "гост", "гости"},
 }
+PRIVATE_ASSISTANT_INTENTS = frozenset({
+    "greeting",
+    "identify_person",
+    "leave_message",
+    "check_messages",
+    "check_timetable",
+    "check_free_periods",
+    "show_announcements",
+    "check_substitutions",
+    "check_duties",
+    "check_tasks",
+    "check_reminders",
+})
 _SUBJECT_NOISE_STEMS = (
     "днес",
     "утре",
@@ -933,21 +946,11 @@ def handle_voice_command(
     elif intent == "unknown":
         response = answer_from_public_school_context(db, text_query) or response
 
-    private_intents = {
-        "leave_message",
-        "check_messages",
-        "check_timetable",
-        "check_free_periods",
-        "check_duties",
-        "check_tasks",
-        "check_reminders",
-        "identify_person",
-    }
     safe_metadata: dict[str, Any] = {
         "intent": intent,
         "matched": intent != "unknown",
     }
-    if intent not in private_intents:
+    if intent not in PRIVATE_ASSISTANT_INTENTS:
         safe_metadata["query"] = text_query
         safe_metadata["response"] = response
     db.add(

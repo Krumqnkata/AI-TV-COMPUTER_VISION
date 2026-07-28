@@ -23,6 +23,40 @@
   {% if can_manage %}<div class="school-sticky-actions"><span>Промените влизат в сила след запис.</span><button class="school-button school-button-primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Запази настройките</button></div>{% endif %}
 </form>
 
+<section class="school-card school-runtime-card">
+  <header>
+    <div>
+      <p class="school-eyebrow">Operational статус</p>
+      <h2>AI доставчик</h2>
+      <p>Показва само техническо състояние. Ключове, въпроси и отговори не се записват тук.</p>
+    </div>
+    <span class="school-status {{ 'school-status-warning' if assistant_runtime.circuit_open else ('school-status-online' if assistant_runtime.configured else 'school-status-offline') }}">
+      {% if assistant_runtime.circuit_open %}Временно спрян{% elif assistant_runtime.configured %}Готов{% else %}Неконфигуриран{% endif %}
+    </span>
+  </header>
+  <div class="school-runtime-grid">
+    <div><span>Активен режим</span><strong>{{ assistant_runtime.provider_label }}</strong><small>{{ assistant_runtime.configuration_message }}</small></div>
+    <div><span>Модел и timeout</span><strong>{{ assistant_runtime.model or 'Без външен модел' }}</strong><small>{{ assistant_runtime.timeout_seconds }} секунди</small></div>
+    <div><span>Заявки за последната минута</span><strong>{{ assistant_runtime.calls_in_last_minute }} / {{ assistant_runtime.calls_per_minute_limit }}</strong><small>Лимитът е за доставчик и процес.</small></div>
+    <div><span>Последен резултат</span><strong>
+      {% if assistant_runtime.last_outcome == 'success' %}Успешен
+      {% elif assistant_runtime.last_outcome == 'error' %}Грешка
+      {% elif assistant_runtime.last_outcome == 'rate_limited' %}Ограничен
+      {% elif assistant_runtime.last_outcome == 'circuit_open' %}Прекъсвачът е отворен
+      {% else %}Няма изпълнен тест{% endif %}
+    </strong><small>{% if assistant_runtime.last_latency_ms is not none %}{{ assistant_runtime.last_latency_ms }} ms{% else %}Няма измерена латентност{% endif %}</small></div>
+    <div><span>Последен успех</span><strong>{{ assistant_runtime.last_success_at or 'Няма' }}</strong><small>UTC време</small></div>
+    <div><span>Последна грешка</span><strong>{{ assistant_runtime.last_error_type or 'Няма' }}</strong><small>{{ assistant_runtime.last_error_at or 'Няма регистрирана грешка' }}</small></div>
+    <div><span>Последователни грешки</span><strong>{{ assistant_runtime.consecutive_failures }}</strong><small>{% if assistant_runtime.circuit_open_until %}Нов опит след {{ assistant_runtime.circuit_open_until }} UTC{% else %}Прекъсвачът е затворен{% endif %}</small></div>
+  </div>
+  {% if can_manage_ai %}
+  <form method="post" action="/admin/settings/assistant/test" class="school-runtime-actions">
+    <p>Тестът изпраща само кратка служебна заявка без училищни или лични данни и използва същите лимити.</p>
+    <button class="school-button school-button-primary" type="submit"><i class="fa-solid fa-plug-circle-check"></i> Тествай избрания доставчик</button>
+  </form>
+  {% endif %}
+</section>
+
 {% if can_manage_ai %}<section class="school-card">
   <header><div><p class="school-eyebrow">Криптирани стойности</p><h2>AI ключове</h2><p>Съществуващата стойност никога не се показва.</p></div></header>
   <div class="school-secret-grid">{% for secret in secrets %}<form method="post" action="/admin/settings/secret" class="school-secret-card"><input type="hidden" name="key" value="{{ secret.key }}"><div><strong>{{ secret.label }}</strong><span class="school-status {{ 'school-status-online' if secret.configured else 'school-status-offline' }}">{{ 'Конфигуриран' if secret.configured else 'Липсва' }}</span>{% if secret.fingerprint %}<small>Отпечатък: {{ secret.fingerprint }}</small>{% endif %}</div><label class="school-field">Нова стойност<input name="value" type="password" required autocomplete="new-password" placeholder="Въведете само при промяна"></label><button class="school-button" type="submit">Обнови</button></form>{% endfor %}</div>

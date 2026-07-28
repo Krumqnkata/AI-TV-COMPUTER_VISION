@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import func
 from sqladmin import BaseView, expose
+from starlette.concurrency import run_in_threadpool
 
 from engine.admin_models import (
     AdminAuditEvent,
@@ -69,6 +70,7 @@ from web.services.device_control import (
     rotate_device_key,
 )
 from web.services.imports import execute_schedule_import, preview_schedule_import, timetable_csv_template
+from web.services.ai_runtime import assistant_runtime_status, probe_ai_connection
 from web.services.operations import (
     collect_operational_warnings,
     disk_space_report,
@@ -84,6 +86,37 @@ def _redirect(path: str, *, ok: str | None = None, error: str | None = None) -> 
 
     params = urlencode({key: value for key, value in {"ok": ok, "error": error}.items() if value})
     return RedirectResponse(path + (f"?{params}" if params else ""), status_code=303)
+
+
+def _probe_and_audit_assistant(
+    actor_id: int,
+    ip_address: str | None,
+) -> dict:
+    """Run the external probe outside the event loop using its own DB session."""
+    with SessionLocal() as db:
+        actor = db.get(StaffAccount, actor_id)
+        if actor is None:
+            raise HTTPException(status_code=401, detail="Сесията е невалидна")
+        result = probe_ai_connection(db)
+        audit_event(
+            db,
+            "assistant.connection_tested",
+            (
+                "Успешен тест на AI доставчик"
+                if result["ok"]
+                else "Неуспешен тест на AI доставчик"
+            ),
+            actor=actor,
+            entity_type="AssistantProvider",
+            entity_id=result["provider"],
+            changes={
+                "provider": result["provider"],
+                "outcome": result["outcome"],
+            },
+            ip_address=ip_address,
+        )
+        db.commit()
+        return result
 
 
 def _qr_data_uri(value: str) -> str:
@@ -267,6 +300,7 @@ class SettingsView(PermissionedBaseView):
                 "subtitle": "Безопасни оперативни настройки; deployment тайните остават извън панела",
                 "groups": grouped,
                 "secrets": secret_catalog(db),
+                "assistant_runtime": assistant_runtime_status(db),
                 "can_manage": session_has_permission(request, "settings.manage"),
                 "can_manage_ai": session_has_permission(request, "assistant.manage"),
                 "ok": request.query_params.get("ok"),
@@ -310,6 +344,23 @@ class SettingsView(PermissionedBaseView):
         except (ValueError, RuntimeError) as exc:
             return _redirect("/admin/settings", error=str(exc))
         return _redirect("/admin/settings", ok="Защитената стойност е обновена и няма да бъде показвана.")
+
+    @expose("/settings/assistant/test", methods=["POST"])
+    async def test_assistant_connection(self, request: Request):
+        self.guard(request, "assistant.manage")
+        with SessionLocal() as db:
+            actor = current_staff(db, request)
+            actor_id = actor.id
+        result = await run_in_threadpool(
+            _probe_and_audit_assistant,
+            actor_id,
+            request_ip(request),
+        )
+        return _redirect(
+            "/admin/settings",
+            ok=result["message"] if result["ok"] else None,
+            error=None if result["ok"] else result["message"],
+        )
 
 
 class StaffManagementView(PermissionedBaseView):

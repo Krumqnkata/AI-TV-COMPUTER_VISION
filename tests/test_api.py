@@ -24,6 +24,15 @@ os.environ["SETTINGS_MASTER_KEY"] = "test-settings-master-key-with-sufficient-le
 os.environ["COOKIE_SECURE"] = "false"
 os.environ["BACKUP_DIR"] = str(Path(_temp_dir.name) / "backups")
 
+# Fail closed if another test imported application configuration before this
+# isolated database contract was installed. Continuing in that state could
+# reuse a cached runtime engine despite the environment override above.
+if "utils.config" in sys.modules or "web.database" in sys.modules:
+    raise RuntimeError(
+        "The API test database must be configured before importing "
+        "utils.config or web.database",
+    )
+
 from fastapi.testclient import TestClient  # noqa: E402
 from alembic import command as alembic_command  # noqa: E402
 from alembic.config import Config as AlembicConfig  # noqa: E402
@@ -257,6 +266,8 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertEqual(metrics.status_code, 200, metrics.text)
         self.assertIn("school_ai_http_requests_total", metrics.text)
         self.assertIn("school_ai_http_request_duration_seconds_sum", metrics.text)
+        self.assertIn("school_ai_ai_requests_total", metrics.text)
+        self.assertIn("school_ai_ai_request_duration_seconds_sum", metrics.text)
         self.assertIn("school_ai_active_websockets", metrics.text)
         self.assertIn("school_ai_delayed_command_acks", metrics.text)
         self.assertNotIn("device_id=", metrics.text)
@@ -480,10 +491,30 @@ class TestSchoolAIAPI(unittest.TestCase):
                     response = self.client.post(
                         "/api/kiosk/query",
                         headers={"X-CSRF-Token": csrf_token},
-                        json={"text_query": "Кой профил е активен?"},
+                        json={"text_query": "Колко е часът?"},
                     )
                     self.assertEqual(response.status_code, 200, response.text)
                     self.assertIs(response.json()["auto_speak"], enabled)
+                    self.assertEqual(
+                        response.json()["speech_policy"],
+                        "auto_allowed",
+                    )
+
+                    private_response = self.client.post(
+                        "/api/kiosk/query",
+                        headers={"X-CSRF-Token": csrf_token},
+                        json={"text_query": "Кой профил е активен?"},
+                    )
+                    self.assertEqual(
+                        private_response.status_code,
+                        200,
+                        private_response.text,
+                    )
+                    self.assertFalse(private_response.json()["auto_speak"])
+                    self.assertEqual(
+                        private_response.json()["speech_policy"],
+                        "manual_only",
+                    )
         finally:
             runtime_registry.clear()
             update_settings(
@@ -1178,6 +1209,103 @@ class TestSchoolAIAPI(unittest.TestCase):
         self.assertNotIn("very-secret-test-key", saved.ciphertext)
         self.assertEqual(read_secret(self.db, "gemini.api_key"), "very-secret-test-key")
         self.assertEqual(self.db.query(EncryptedSecret).filter_by(key="gemini.api_key").count(), 1)
+
+    def test_legacy_assistant_model_moves_to_the_selected_provider(self):
+        original = {
+            key: get_setting(self.db, key)
+            for key in (
+                "assistant.provider",
+                "assistant.gemini_model",
+                "assistant.ollama_model",
+            )
+        }
+        legacy = self.db.query(SystemSetting).filter_by(
+            key="assistant.model",
+        ).first()
+        self.assertIsNone(legacy)
+        try:
+            update_settings(
+                self.db,
+                {"assistant.provider": "ollama"},
+                self.staff,
+            )
+            self.db.query(SystemSetting).filter(
+                SystemSetting.key.in_(
+                    ("assistant.gemini_model", "assistant.ollama_model"),
+                )
+            ).delete(synchronize_session=False)
+            self.db.add(
+                SystemSetting(
+                    key="assistant.model",
+                    category="AI асистент",
+                    label="Legacy модел",
+                    description="Тестова legacy стойност",
+                    value_type="string",
+                    value_json=json.dumps("legacy-ollama-model"),
+                    restart_required=False,
+                )
+            )
+            self.db.commit()
+
+            ensure_admin_foundation(self.db)
+
+            self.assertEqual(
+                get_setting(self.db, "assistant.ollama_model"),
+                "legacy-ollama-model",
+            )
+            self.assertEqual(
+                get_setting(self.db, "assistant.gemini_model"),
+                AppConfig.GEMINI_MODEL_ID,
+            )
+        finally:
+            self.db.query(SystemSetting).filter_by(
+                key="assistant.model",
+            ).delete(synchronize_session=False)
+            self.db.commit()
+            ensure_admin_foundation(self.db)
+            update_settings(self.db, original, self.staff)
+
+    def test_admin_ai_status_and_connection_test_are_sanitized(self):
+        self._login_admin()
+        page = self.client.get("/admin/settings")
+        self.assertEqual(page.status_code, 200, page.text[:500])
+        self.assertIn("Operational статус", page.text)
+        self.assertIn("Gemini модел", page.text)
+        self.assertIn("Ollama модел", page.text)
+        self.assertIn("Тествай избрания доставчик", page.text)
+        self.assertNotIn("very-secret-test-key", page.text)
+
+        before = self.db.query(AdminAuditEvent).filter_by(
+            action="assistant.connection_tested",
+        ).count()
+        with patch(
+            "web.admin.control_views.probe_ai_connection",
+            return_value={
+                "ok": True,
+                "provider": "gemini",
+                "outcome": "success",
+                "message": "Връзката с Gemini е успешна.",
+            },
+        ):
+            response = self.client.post(
+                "/admin/settings/assistant/test",
+                headers={"Origin": "http://testserver"},
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303, response.text[:300])
+        self.assertIn("/admin/settings?ok=", response.headers["location"])
+        self.db.expire_all()
+        self.assertEqual(
+            self.db.query(AdminAuditEvent).filter_by(
+                action="assistant.connection_tested",
+            ).count(),
+            before + 1,
+        )
+        latest = self.db.query(AdminAuditEvent).filter_by(
+            action="assistant.connection_tested",
+        ).order_by(AdminAuditEvent.id.desc()).first()
+        self.assertNotIn("very-secret-test-key", latest.changes_json)
+        self.client.cookies.delete("session")
 
     def test_admin_dashboard_is_bulgarian_and_permission_aware(self):
         self._login_admin()

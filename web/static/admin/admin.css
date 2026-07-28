@@ -137,6 +137,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .school-secret-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--school-line); border-radius: 12px; }
 .school-secret-card > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .school-secret-card > div small { flex-basis: 100%; color: var(--school-muted); }
+.school-runtime-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.school-runtime-grid > div { display: grid; align-content: start; gap: 5px; min-height: 106px; padding: 15px; border: 1px solid var(--school-line); border-radius: 11px; background: #f8fafc; }
+.school-runtime-grid span, .school-runtime-grid small { color: var(--school-muted); font-size: 11px; }
+.school-runtime-grid strong { overflow-wrap: anywhere; color: var(--school-ink); font-size: 15px; }
+.school-runtime-actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--school-line); }
+.school-runtime-actions p { max-width: 720px; margin: 0; color: var(--school-muted); font-size: 12px; }
 
 .school-button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 40px; padding: 9px 14px; border: 1px solid #cbd4e2; border-radius: 9px; background: #fff; color: #35425a; font-weight: 750; font-size: 13px; cursor: pointer; }
 .school-button:hover { border-color: #aebbd0; background: #f8fafc; color: var(--school-ink); }
@@ -312,6 +318,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 @media (max-width: 1100px) {
   .school-stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .school-runtime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .school-retention-grid { grid-template-columns: repeat(2, 1fr); }
   .school-form-grid { grid-template-columns: repeat(2, 1fr); }
 }
@@ -335,7 +342,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   .school-help { width: 42px; height: 42px; padding: 0; justify-content: center; font-size: 0; }
   .school-help i { font-size: 16px; }
   .school-content { padding-left: 12px; padding-right: 12px; }
-  .school-stat-grid, .school-action-grid, .school-settings-grid, .school-secret-grid, .school-device-grid, .school-form-grid, .school-form-grid-small, .school-retention-grid { grid-template-columns: 1fr; }
+  .school-stat-grid, .school-action-grid, .school-settings-grid, .school-secret-grid, .school-runtime-grid, .school-device-grid, .school-form-grid, .school-form-grid-small, .school-retention-grid { grid-template-columns: 1fr; }
+  .school-runtime-actions { align-items: stretch; flex-direction: column; }
   .school-welcome, .school-confirm-card { align-items: flex-start; flex-direction: column; }
   .school-card { padding: 16px; }
   .school-card > header { flex-direction: column; }

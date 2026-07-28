@@ -30,7 +30,7 @@ from web.security import (
     require_profile_device,
 )
 from web.services.admin_control import get_setting
-from web.services.assistant import handle_voice_command
+from web.services.assistant import PRIVATE_ASSISTANT_INTENTS, handle_voice_command
 from web.services.assistant_suggestions import build_kiosk_query_suggestions
 from web.services.badges import process_badge_detection
 from web.services.delivery import acknowledge_delivery
@@ -258,9 +258,15 @@ def kiosk_query(
         request.text_query,
         db,
     )
+    speech_policy = (
+        "manual_only"
+        if result["intent"] in PRIVATE_ASSISTANT_INTENTS
+        else "auto_allowed"
+    )
+    result["speech_policy"] = speech_policy
     result["auto_speak"] = bool(
         get_setting(db, "features.kiosk_auto_speak_answers")
-    )
+    ) and speech_policy == "auto_allowed"
     return result
 
 

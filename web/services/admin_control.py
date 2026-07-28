@@ -120,10 +120,14 @@ SETTING_DEFINITIONS: tuple[SettingDefinition, ...] = (
     SettingDefinition("operations.maintenance_warning_hours", "Наблюдение", "Праг за периодичните задачи", "След колко часа без успешно backup/retention изпълнение да има предупреждение.", "integer", 30, 1, 720),
     SettingDefinition("devices.legacy_shared_key_enabled", "Устройства", "Стар общ ключ", "Временно допуска DEVICE_API_KEY за стари клиенти.", "boolean", bool(Config.DEVICE_API_KEY)),
     SettingDefinition("assistant.provider", "AI асистент", "Доставчик", "Правила, Gemini или локален Ollama.", "choice", "rules", choices=("rules", "gemini", "ollama")),
-    SettingDefinition("assistant.model", "AI асистент", "Модел", "Идентификатор на избрания модел.", "string", Config.GEMINI_MODEL_ID),
+    SettingDefinition("assistant.gemini_model", "AI асистент", "Gemini модел", "Идентификаторът се използва само когато доставчикът е Gemini.", "string", Config.GEMINI_MODEL_ID),
+    SettingDefinition("assistant.ollama_model", "AI асистент", "Ollama модел", "Името на локалния модел се използва само когато доставчикът е Ollama.", "string", Config.OLLAMA_MODEL),
     SettingDefinition("assistant.temperature", "AI асистент", "Креативност", "По-ниската стойност дава по-предвидими отговори.", "number", Config.AI_TEMPERATURE, 0, 2),
+    SettingDefinition("assistant.external_calls_per_minute", "AI асистент", "Заявки в минута", "Максимален брой външни AI заявки за един доставчик и процес.", "integer", 20, 1, 120),
+    SettingDefinition("assistant.circuit_failure_threshold", "AI асистент", "Праг за временно спиране", "Последователни грешки преди временно блокиране на външния доставчик.", "integer", 3, 1, 10),
+    SettingDefinition("assistant.circuit_reset_seconds", "AI асистент", "Възстановяване след грешки", "Секунди преди нов опит след отваряне на защитния прекъсвач.", "integer", 60, 10, 600),
     SettingDefinition("features.voice_enabled", "Функции", "Гласов асистент", "Разрешава гласови заявки на устройствата.", "boolean", True),
-    SettingDefinition("features.kiosk_auto_speak_answers", "Функции", "Автоматично прочитане в киоска", "Прочита на глас всеки получен отговор на киоска.", "boolean", False),
+    SettingDefinition("features.kiosk_auto_speak_answers", "Функции", "Автоматично прочитане в киоска", "Автоматично прочита само неповерителните отговори; личните изискват действие от потребителя.", "boolean", False),
     SettingDefinition("features.public_stats_enabled", "Функции", "Публична статистика", "Показва обобщени данни на началния екран.", "boolean", True),
     SettingDefinition("privacy.system_events_days", "Поверителност", "Системни събития", "Срок за съхранение в дни.", "integer", 90, 7, 3650),
     SettingDefinition("privacy.audit_days", "Поверителност", "Административен одит", "Срок за съхранение в дни.", "integer", 365, 30, 3650),
@@ -207,10 +211,36 @@ def _upsert_permissions_and_roles(db: Session) -> None:
 
 def _ensure_settings(db: Session) -> None:
     existing = {item.key: item for item in db.query(SystemSetting).all()}
+    migrated_defaults: dict[str, Any] = {}
+    legacy_model = existing.get("assistant.model")
+    if legacy_model is not None:
+        try:
+            legacy_value = json.loads(legacy_model.value_json)
+        except (TypeError, json.JSONDecodeError):
+            legacy_value = None
+        if isinstance(legacy_value, str) and legacy_value.strip():
+            provider = "rules"
+            provider_item = existing.get("assistant.provider")
+            if provider_item is not None:
+                try:
+                    provider = str(json.loads(provider_item.value_json))
+                except (TypeError, json.JSONDecodeError):
+                    provider = "rules"
+            target = (
+                "assistant.ollama_model"
+                if provider == "ollama"
+                else "assistant.gemini_model"
+            )
+            migrated_defaults[target] = legacy_value.strip()
+
     for definition in SETTING_DEFINITIONS:
         item = existing.get(definition.key)
         if item is None:
-            item = SystemSetting(key=definition.key, value_json=json.dumps(definition.default, ensure_ascii=False))
+            default = migrated_defaults.get(definition.key, definition.default)
+            item = SystemSetting(
+                key=definition.key,
+                value_json=json.dumps(default, ensure_ascii=False),
+            )
             db.add(item)
         item.category = definition.category
         item.label = definition.label
