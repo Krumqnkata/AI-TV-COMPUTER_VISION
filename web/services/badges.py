@@ -15,6 +15,7 @@ from engine.db import (
     today_bg,
 )
 from web.schemas import QRDetectionRequest
+from web.services.badge_jokes import select_badge_joke
 from web.services.runtime import runtime_registry
 from web.services.admin_control import get_setting
 
@@ -161,7 +162,10 @@ def process_badge_detection(
         prefix = "Имате" if person.role in ("teacher", "admin") else "Имаш"
         messages_text = f"{prefix} {len(delivered_texts)} нови съобщения: " + " | ".join(delivered_texts)
 
-    welcome_message = " ".join(part for part in (greeting, messages_text, next_class_text) if part)
+    joke = select_badge_joke(db, person.role)
+    welcome_message = " ".join(
+        part for part in (greeting, messages_text, next_class_text, joke) if part
+    )
     event_id = uuid.uuid4().hex
     delivery_id = uuid.uuid4().hex
 
@@ -201,6 +205,7 @@ def process_badge_detection(
         "role": person.role,
         "class_name": person.class_name,
         "message": welcome_message,
+        "joke": joke,
         "next_class": next_class_info,
         "pending_messages_count": len(message_ids),
         "message_ids": message_ids,
@@ -213,6 +218,7 @@ def process_badge_detection(
         "event_id": event_id,
         "person": {"id": person.id, "name": person.full_name, "role": person.role},
         "message": welcome_message,
+        "joke": joke,
         "messages_delivered": delivered_texts,
         "message_ids": message_ids,
         "delivery_id": delivery_id if message_ids else None,
