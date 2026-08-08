@@ -10,6 +10,7 @@ from engine.admin_models import (
     AdminAuditEvent,
     Announcement,
     ArchivedRecord,
+    BadgeJoke,
     BackupRecord,
     ClassGroup,
     Club,
@@ -264,6 +265,38 @@ class AnnouncementAdmin(PermissionedModelView, model=Announcement):
     column_formatters = {Announcement.publish_from: _date_time, Announcement.publish_until: _date_time, Announcement.published: _yes_no}
 
 
+class BadgeJokeAdmin(PermissionedModelView, model=BadgeJoke):
+    name = "Шега при бадж"
+    name_plural = "Шеги при сканиране"
+    category = "Съдържание"
+    icon = "fa-solid fa-face-laugh-beam"
+    view_permission = "content.view"
+    manage_permission = "content.manage"
+    archive_on_delete = True
+    column_list = [BadgeJoke.text, BadgeJoke.audience, BadgeJoke.active, BadgeJoke.updated_at]
+    column_searchable_list = [BadgeJoke.text]
+    column_sortable_list = [BadgeJoke.audience, BadgeJoke.active, BadgeJoke.updated_at]
+    form_columns = [BadgeJoke.text, BadgeJoke.audience, BadgeJoke.active]
+    column_labels = {
+        BadgeJoke.text: "Текст на шегата",
+        BadgeJoke.audience: "За кого",
+        BadgeJoke.active: "Активна",
+        BadgeJoke.created_at: "Създадена",
+        BadgeJoke.updated_at: "Обновена",
+    }
+    column_formatters = {BadgeJoke.active: _yes_no, BadgeJoke.updated_at: _date_time}
+    form_overrides = {"audience": SelectField}
+    form_args = {
+        "audience": {
+            "choices": [
+                ("all", "За всички"),
+                ("student", "За ученици"),
+                ("teacher", "За учители и администратори"),
+            ],
+        },
+    }
+
+
 class ClubAdmin(PermissionedModelView, model=Club):
     name = "Клуб"
     name_plural = "Клубове"
@@ -501,7 +534,7 @@ class PrivacyCleanupRunAdmin(ReadOnlyAuditView, model=PrivacyCleanupRun):
 MODEL_VIEWS = [
     PersonAdmin, ClassGroupAdmin, GroupMembershipAdmin, BadgeAdmin,
     TimetableAdmin, SubstitutionAdmin, DutyAdmin, RoomAdmin,
-    EventAdmin, AnnouncementAdmin, ClubAdmin, SchoolTaskAdmin, ReminderAdmin, DirectoryEntryAdmin,
+    EventAdmin, AnnouncementAdmin, BadgeJokeAdmin, ClubAdmin, SchoolTaskAdmin, ReminderAdmin, DirectoryEntryAdmin,
     MessageAdmin, MessageCampaignAdmin,
     InteractionPointAdmin, CameraAdmin, DeviceNodeAdmin,
     PrivacyNoticeAdmin, ArchivedRecordAdmin,

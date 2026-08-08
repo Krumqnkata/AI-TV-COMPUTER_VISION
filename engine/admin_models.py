@@ -18,7 +18,7 @@ from sqlalchemy import (
     Time,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 
 from engine.db import Base, now_bg
 
@@ -220,6 +220,45 @@ class Announcement(Base):
     created_at = Column(DateTime, default=now_bg, nullable=False)
 
     created_by = relationship("StaffAccount")
+
+
+class BadgeJoke(Base):
+    """Curated joke that may be included after a successful badge scan."""
+
+    __tablename__ = "badge_jokes"
+
+    id = Column(Integer, primary_key=True)
+    text = Column(String(280), nullable=False)
+    audience = Column(String(20), default="all", nullable=False, index=True)
+    active = Column(Boolean, default=True, nullable=False, index=True)
+    created_by_staff_id = Column(
+        Integer,
+        ForeignKey("staff_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at = Column(DateTime, default=now_bg, nullable=False)
+    updated_at = Column(DateTime, default=now_bg, onupdate=now_bg, nullable=False)
+
+    created_by = relationship("StaffAccount")
+
+    @validates("text")
+    def validate_text(self, _key, value):
+        normalized = str(value or "").strip()
+        if len(normalized) < 5:
+            raise ValueError("Шегата трябва да съдържа поне 5 символа")
+        if len(normalized) > 280:
+            raise ValueError("Шегата не може да е по-дълга от 280 символа")
+        return normalized
+
+    @validates("audience")
+    def validate_audience(self, _key, value):
+        normalized = str(value or "").strip().casefold()
+        if normalized not in {"all", "student", "teacher"}:
+            raise ValueError("Невалидна категория за шегата")
+        return normalized
+
+    def __repr__(self):
+        return self.text
 
 
 class Club(Base):

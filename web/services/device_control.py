@@ -359,6 +359,7 @@ def device_config(db: Session, context: DeviceContext) -> dict[str, Any]:
             "settings": {
                 "kiosk_idle_seconds": get_setting(db, "sessions.kiosk_idle_seconds"),
                 "voice_enabled": get_setting(db, "features.voice_enabled"),
+                "badge_jokes_auto_speak": get_setting(db, "features.badge_jokes_auto_speak"),
             },
         }
     try:
@@ -388,6 +389,7 @@ def device_config(db: Session, context: DeviceContext) -> dict[str, Any]:
             "qr_same_camera_seconds": get_setting(db, "qr.same_camera_seconds"),
             "qr_cross_camera_seconds": get_setting(db, "qr.cross_camera_seconds"),
             "voice_enabled": get_setting(db, "features.voice_enabled"),
+            "badge_jokes_auto_speak": get_setting(db, "features.badge_jokes_auto_speak"),
             **custom,
         },
     }

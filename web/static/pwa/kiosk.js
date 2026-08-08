@@ -242,6 +242,7 @@
             role: person.role || data.role || "",
             className: data.class_name || "",
             message: data.message || "",
+            joke: data.joke || "",
             nextClass: data.next_class || null,
             messageTexts: Array.isArray(data.messages_delivered) ? data.messages_delivered : [],
             messageCount: Number(
@@ -423,7 +424,7 @@
         setSpeechStatus(statusMessage || "");
     }
 
-    function speakText(text) {
+    function speakText(text, completionMessage) {
         if (!text || !hasSpeechSupport()) {
             setSpeechStatus("Прочитането на глас не се поддържа.", "error");
             return false;
@@ -446,7 +447,7 @@
                 }
                 activeSpeechUtterance = null;
                 refreshSpeechControls(false);
-                setSpeechStatus("Отговорът е прочетен.", "complete");
+                setSpeechStatus(completionMessage || "Отговорът е прочетен.", "complete");
             };
             utterance.onerror = () => {
                 if (activeSpeechUtterance !== utterance) {
@@ -627,6 +628,20 @@
             window.setTimeout(() => {
                 app.queueDeliveryAck("kiosk", event.deliveryId, event.messageIds);
             }, 650);
+        }
+        const jokeSpeechEnabled = Boolean(
+            event.joke
+            && config
+            && config.settings
+            && config.settings.voice_enabled !== false
+            && config.settings.badge_jokes_auto_speak !== false
+        );
+        if (jokeSpeechEnabled) {
+            window.setTimeout(() => {
+                if (currentSessionEvent === event) {
+                    speakText(event.joke, "Шегата е прочетена.");
+                }
+            }, 350);
         }
     }
 

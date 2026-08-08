@@ -36,7 +36,7 @@ if "utils.config" in sys.modules or "web.database" in sys.modules:
 from fastapi.testclient import TestClient  # noqa: E402
 from alembic import command as alembic_command  # noqa: E402
 from alembic.config import Config as AlembicConfig  # noqa: E402
-from sqlalchemy import create_engine, inspect  # noqa: E402
+from sqlalchemy import create_engine, inspect, text  # noqa: E402
 
 
 _test_migration_config = AlembicConfig(str(PROJECT_ROOT / "alembic.ini"))
@@ -47,6 +47,7 @@ from engine.auth import get_password_hash  # noqa: E402
 from engine.admin_models import (  # noqa: E402
     AdminAuditEvent,
     Announcement,
+    BadgeJoke,
     BackupRecord,
     Club,
     DeviceCommand,
@@ -78,6 +79,7 @@ from web.services.admin_control import (  # noqa: E402
     update_settings,
 )
 from web.services.assistant_suggestions import build_kiosk_query_suggestions  # noqa: E402
+from web.services.badge_jokes import _audiences_for_role, select_badge_joke  # noqa: E402
 from web.services.backups import create_sqlite_backup, verify_backup  # noqa: E402
 from web.services.device_control import available_safe_commands, create_enrollment_token, queue_command  # noqa: E402
 from web.services.imports import execute_schedule_import, preview_schedule_import  # noqa: E402
@@ -97,6 +99,7 @@ CONTROL_TABLE_NAMES = {
     "device_nodes",
     "system_settings",
     "operational_job_runs",
+    "badge_jokes",
 }
 
 
@@ -922,6 +925,85 @@ class TestSchoolAIAPI(unittest.TestCase):
         maria_after = self._scan(token="SCH-7E1B2C3A")
         self.assertEqual(maria_after.json()["status"], "success")
 
+    def test_badge_greeting_includes_separate_curated_joke(self):
+        with patch(
+            "web.services.badges.select_badge_joke",
+            return_value="Шега за деня: Тестова безопасна шега.",
+        ):
+            response = self._scan()
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["status"], "success")
+        self.assertEqual(
+            payload["joke"],
+            "Шега за деня: Тестова безопасна шега.",
+        )
+        self.assertIn(payload["joke"], payload["message"])
+
+    def test_badge_joke_role_audiences_are_scoped(self):
+        self.assertEqual(_audiences_for_role("guest"), ("all",))
+        self.assertEqual(_audiences_for_role("student"), ("all", "student"))
+        self.assertEqual(_audiences_for_role("teacher"), ("all", "teacher"))
+        self.assertEqual(_audiences_for_role("admin"), ("all", "teacher"))
+
+    def test_badge_joke_model_validates_admin_content(self):
+        with self.assertRaisesRegex(ValueError, "поне 5 символа"):
+            BadgeJoke(text="  ", audience="all")
+        with self.assertRaisesRegex(ValueError, "Невалидна категория"):
+            BadgeJoke(text="Валидна тестова шега", audience="unknown")
+
+        joke = BadgeJoke(
+            text="  Валидна тестова шега.  ",
+            audience="STUDENT",
+        )
+        self.assertEqual(joke.text, "Валидна тестова шега.")
+        self.assertEqual(joke.audience, "student")
+
+    def test_badge_joke_respects_admin_settings(self):
+        with patch("web.services.badge_jokes.get_setting", return_value=False):
+            self.assertIsNone(select_badge_joke(self.db, "student"))
+
+        def enabled_setting(_db, key):
+            return {
+                "features.badge_jokes_enabled": True,
+                "features.badge_jokes_frequency": 35,
+            }[key]
+
+        with (
+            patch(
+                "web.services.badge_jokes.get_setting",
+                side_effect=enabled_setting,
+            ),
+            patch(
+                "web.services.badge_jokes.secrets.randbelow",
+                return_value=34,
+            ),
+            patch(
+                "web.services.badge_jokes.secrets.choice",
+                return_value=BadgeJoke(
+                    text="Одобрена шега.",
+                    audience="student",
+                ),
+            ),
+        ):
+            self.assertEqual(
+                select_badge_joke(self.db, "student"),
+                "Шега за деня: Одобрена шега.",
+            )
+
+        with (
+            patch(
+                "web.services.badge_jokes.get_setting",
+                side_effect=enabled_setting,
+            ),
+            patch(
+                "web.services.badge_jokes.secrets.randbelow",
+                return_value=35,
+            ),
+        ):
+            self.assertIsNone(select_badge_joke(self.db, "student"))
+
     def test_session_close_uses_all_provided_scope_fields(self):
         now = now_bg()
         first_person = self._person("Антон Иванов")
@@ -1333,6 +1415,7 @@ class TestSchoolAIAPI(unittest.TestCase):
             "/admin/person/list",
             "/admin/timetable/list",
             "/admin/announcement/list",
+            "/admin/badge-joke/list",
         ]:
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, f"{path}: {response.text[:300]}")
@@ -1445,6 +1528,11 @@ class TestSchoolAIAPI(unittest.TestCase):
             self.assertTrue(LEGACY_TABLE_NAMES.issubset(tables))
             self.assertTrue(CONTROL_TABLE_NAMES.issubset(tables))
             self.assertIn("alembic_version", tables)
+            with migration_engine.connect() as connection:
+                seeded_jokes = connection.execute(
+                    text("SELECT COUNT(*) FROM badge_jokes"),
+                ).scalar_one()
+            self.assertGreaterEqual(seeded_jokes, 12)
             self.assertTrue({
                 "diagnostics_json",
                 "last_websocket_at",
